@@ -1,3 +1,4 @@
+```
 --[[
     Peex HUB | GrowBlox  (v9 - Pathfinding, tanpa Key System)
     Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
@@ -4651,22 +4652,34 @@ local function CloseHub()
     if not frame then
         return
     end
+
+    -- Lepaskan referensi lebih dulu agar klik berikutnya bisa membuka GUI baru.
     hub.frame = nil
     hub.active = nil
     hub.minimized = false
-    if hub.scale then
-        Tween(hub.scale, 0.12, { Scale = 0.92 })
+    hub.scale = nil
+
+    local scale = frame:FindFirstChildOfClass("UIScale")
+    if scale then
+        Tween(scale, 0.12, { Scale = 0.92 })
     end
-    task.delay(0.13, function()
-        frame:Destroy()
+
+    task.delay(0.14, function()
+        if frame and frame.Parent then
+            frame:Destroy()
+        end
     end)
 end
 hub.close = CloseHub
 
 local function OpenHub(tabId)
-    if hub.frame then
+    if hub.frame and hub.frame.Parent then
         SwitchTab(tabId)
         return
+    elseif hub.frame then
+        hub.frame = nil
+        hub.active = nil
+        hub.scale = nil
     end
 
     local viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
@@ -4862,11 +4875,14 @@ local function OpenHub(tabId)
 end
 
 local function ToggleHub(tabId)
-    if hub.frame and hub.active == tabId then
-        CloseHub()
-    else
-        OpenHub(tabId)
+    -- Perintah tab (mis. /hpx, /af, /sgb) selalu membuka/berpindah tab.
+    -- Jangan menutup GUI hanya karena tab yang sama dipanggil dua kali.
+    if hub.frame and not hub.frame.Parent then
+        hub.frame = nil
+        hub.active = nil
+        hub.scale = nil
     end
+    OpenHub(tabId)
 end
 
 -- Tombol P melayang (bisa digeser; tap = buka/tutup menu)
@@ -5266,3 +5282,4 @@ if FindInventory() then
 else
     Notify("Loaded, tapi inventory game belum ditemukan (cek executor).")
 end
+```
