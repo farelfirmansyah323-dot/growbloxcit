@@ -1,4 +1,4 @@
-```
+
 --[[
     Peex HUB | GrowBlox  (v9 - Pathfinding, tanpa Key System)
     Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
@@ -5282,4 +5282,3 @@ if FindInventory() then
 else
     Notify("Loaded, tapi inventory game belum ditemukan (cek executor).")
 end
-```
