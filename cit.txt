@@ -3078,12 +3078,9 @@ local function GetGui()
     rootGui.ResetOnSpawn = false
     rootGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     rootGui.DisplayOrder = 999
-    local okParent = pcall(function()
-        rootGui.Parent = (gethui and gethui()) or PlayerGui
-    end)
-    if not okParent or not rootGui.Parent then
-        rootGui.Parent = PlayerGui
-    end
+    -- Delta compatibility: parent directly to the local player's PlayerGui.
+    -- This avoids placing the ScreenGui in an executor-only hidden container.
+    rootGui.Parent = PlayerGui
     return rootGui
 end
 
@@ -5249,6 +5246,13 @@ PlayerGui.DescendantAdded:Connect(HookTextBox)
 Player.Chatted:Connect(Process)
 
 BuildLauncher()
+
+-- Tampilkan menu utama langsung saat script selesai dijalankan.
+task.defer(function()
+    pcall(function()
+        OpenHub("features")
+    end)
+end)
 
 -- Auto-reload: antrekan skrip untuk server/world berikutnya
 pcall(QueueReload)
