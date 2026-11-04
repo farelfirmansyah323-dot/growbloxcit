@@ -1,4 +1,4 @@
-
+```
 --[[
     Peex HUB | GrowBlox  (v9 - Pathfinding, tanpa Key System)
     Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
@@ -3073,6 +3073,12 @@ local function GetGui()
     if rootGui and rootGui.Parent then
         return rootGui
     end
+    -- Reuse ScreenGui from an earlier execution to avoid stacked interfaces.
+    local existing = PlayerGui:FindFirstChild("PeexHubGB")
+    if existing and existing:IsA("ScreenGui") then
+        rootGui = existing
+        return rootGui
+    end
     rootGui = Instance.new("ScreenGui")
     rootGui.Name = "PeexHubGB"
     rootGui.ResetOnSpawn = false
@@ -4607,6 +4613,20 @@ local function SwitchTab(id)
     for tabId, page in pairs(hub.pages) do
         page.Visible = (tabId == id)
     end
+    -- Build a page only when the player first opens that tab.
+    -- This avoids creating every tab's controls/search results at startup.
+    local selectedPage = hub.pages[id]
+    if selectedPage and not (hub.built and hub.built[id]) then
+        hub.built = hub.built or {}
+        hub.built[id] = true
+        local builder = hub.builders[id]
+        if builder then
+            local okBuild, err = pcall(builder, selectedPage)
+            if not okBuild then
+                AddNote(selectedPage, "Gagal memuat halaman: " .. tostring(err))
+            end
+        end
+    end
     for tabId, tab in pairs(hub.tabs) do
         local active = (tabId == id)
         Tween(tab.button, 0.15, { BackgroundTransparency = active and 0 or 1 })
@@ -4632,7 +4652,8 @@ local function MakeDraggable(handle, frame)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
+    hub.dragConnections = hub.dragConnections or {}
+    local dragConnection = UserInputService.InputChanged:Connect(function(input)
         if dragging and frame.Parent and (input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
@@ -4642,6 +4663,7 @@ local function MakeDraggable(handle, frame)
             )
         end
     end)
+    table.insert(hub.dragConnections, dragConnection)
 end
 
 local function CloseHub()
@@ -4655,6 +4677,12 @@ local function CloseHub()
     hub.active = nil
     hub.minimized = false
     hub.scale = nil
+
+    -- Disconnect drag listeners so every open/close does not accumulate input callbacks.
+    for _, connection in ipairs(hub.dragConnections or {}) do
+        pcall(function() connection:Disconnect() end)
+    end
+    hub.dragConnections = {}
 
     local scale = frame:FindFirstChildOfClass("UIScale")
     if scale then
@@ -4678,6 +4706,11 @@ local function OpenHub(tabId)
         hub.active = nil
         hub.scale = nil
     end
+
+    -- Remove an orphaned window left by a previous execution.
+    local guiRoot = GetGui()
+    local orphanedHub = guiRoot:FindFirstChild("Hub")
+    if orphanedHub then orphanedHub:Destroy() end
 
     local viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
     local width = math.clamp(viewport.X - 20, 300, 580)
@@ -4703,6 +4736,8 @@ local function OpenHub(tabId)
     hub.pages = {}
     hub.tabs = {}
     hub.refreshers = {}
+    hub.built = {}
+    hub.dragConnections = {}
     Tween(scale, 0.18, { Scale = 1 })
 
     -- Header
@@ -4862,10 +4897,7 @@ local function OpenHub(tabId)
         }, page)
         hub.pages[tab.id] = page
 
-        local okBuild, err = pcall(hub.builders[tab.id], page)
-        if not okBuild then
-            AddNote(page, "Gagal memuat halaman: " .. tostring(err))
-        end
+        -- Page contents are created lazily by SwitchTab when selected.
     end
 
     SwitchTab(tabId)
@@ -4884,6 +4916,16 @@ end
 
 -- Tombol P melayang (bisa digeser; tap = buka/tutup menu)
 local function BuildLauncher()
+    if hub.launcher and hub.launcher.Parent then
+        hub.launcher:Destroy()
+    end
+    if hub.launcherConnection then
+        pcall(function() hub.launcherConnection:Disconnect() end)
+        hub.launcherConnection = nil
+    end
+    local oldLauncher = GetGui():FindFirstChild("Launcher")
+    if oldLauncher then oldLauncher:Destroy() end
+
     local holder = New("Frame", {
         Name = "Launcher",
         Size = UDim2.fromOffset(44, 44),
@@ -4920,9 +4962,10 @@ local function BuildLauncher()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
                     if not moved then
-                        if hub.frame then
+                        if hub.frame and hub.frame.Parent then
                             CloseHub()
                         else
+                            hub.frame = nil
                             OpenHub("features")
                         end
                     end
@@ -4930,7 +4973,7 @@ local function BuildLauncher()
             end)
         end
     end)
-    UserInputService.InputChanged:Connect(function(input)
+    hub.launcherConnection = UserInputService.InputChanged:Connect(function(input)
         if dragging and holder.Parent and (input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
@@ -5286,3 +5329,4 @@ if FindInventory() then
 else
     Notify("Loaded, tapi inventory game belum ditemukan (cek executor).")
 end
+```
