@@ -1834,6 +1834,9 @@ do
 
     -- Tile yang TIDAK boleh dipecah: lock, area, bedrock, hits <= 0, door utama
     local function IsBedrock(db, id)
+        if tonumber(id) == 10 then
+            return false
+        end
         local item = db and db[id]
         if type(item) ~= "table" then
             return false
@@ -1880,7 +1883,12 @@ do
                 local skipCoordinate = false
 
                 if f and f ~= 0 then
-                    if IsBedrock(db, f) then
+                    if tonumber(f) == 10 then
+                        -- Rock ID 10 selalu masuk target foreground,
+                        -- walaupun metadata ItemDB tidak lengkap/berbeda.
+                        table.insert(list, { x = x, y = y, id = 10, layer = "fg" })
+                        skipCoordinate = true
+                    elseif IsBedrock(db, f) then
                         -- Jangan pernah mencoba cave/background di balik bedrock.
                         skipCoordinate = true
                     elseif not Protected(db, f) then
@@ -1896,7 +1904,9 @@ do
 
                 if not skipCoordinate then
                     local b = TileValue(world, "bg", x, y)
-                    if b and b ~= 0 and not Protected(db, b) then
+                    if tonumber(b) == 10 then
+                        table.insert(list, { x = x, y = y, id = 10, layer = "bg" })
+                    elseif b and b ~= 0 and not Protected(db, b) then
                         table.insert(list, { x = x, y = y, id = b, layer = "bg" })
                     end
                 end
