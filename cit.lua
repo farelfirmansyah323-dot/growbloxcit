@@ -1855,19 +1855,30 @@ do
         return TileValue(world, t.layer, t.x, t.y) == t.id
     end
 
-    -- Kumpulkan tile target (fg dulu; bg hanya kalau fg di atasnya sudah kosong)
+    -- Kumpulkan tile target: foreground diprioritaskan.
+    -- Background/cave background ikut dipilih jika foreground kosong ATAU
+    -- foreground di koordinat itu dilindungi (lock/bedrock), agar bg tidak terlewat.
+    -- Jika foreground masih bisa dihancurkan, background ditangani pada scan berikutnya.
     local function Collect(world, db, fails)
         local list = {}
         for y = 0, world.h - 1 do
             for x = 0, world.w - 1 do
                 local f = TileValue(world, "fg", x, y)
+                local fgBlocksBackground = false
+
                 if f and f ~= 0 then
-                    if not Protected(db, f) and (fails[x .. "," .. y .. ",fg"] or 0) < 3 then
-                        table.insert(list, { x = x, y = y, id = f, layer = "fg" })
+                    if not Protected(db, f) then
+                        if (fails[x .. "," .. y .. ",fg"] or 0) < 3 then
+                            table.insert(list, { x = x, y = y, id = f, layer = "fg" })
+                        end
+                        fgBlocksBackground = true
                     end
-                else
+                end
+
+                if not fgBlocksBackground then
                     local b = TileValue(world, "bg", x, y)
-                    if b and b ~= 0 and not Protected(db, b) and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
+                    if b and b ~= 0 and not Protected(db, b)
+                        and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
                         table.insert(list, { x = x, y = y, id = b, layer = "bg" })
                     end
                 end
