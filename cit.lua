@@ -71,9 +71,15 @@ local TeleportService = game:GetService("TeleportService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
-local DropEvent = ReplicatedStorage
-    :WaitForChild("WorldRemotes")
-    :WaitForChild("DropItem")
+-- Jangan biarkan skrip berhenti selamanya jika remote game belum tersedia.
+-- GUI tetap boleh dimuat; fitur drop akan memberi peringatan saat dipakai.
+local DropEvent = nil
+pcall(function()
+    local remotes = ReplicatedStorage:WaitForChild("WorldRemotes", 8)
+    if remotes then
+        DropEvent = remotes:WaitForChild("DropItem", 8)
+    end
+end)
 
 ----------------------------------------------------------------------
 -- CONFIG (disimpan ke file kalau executor mendukung writefile)
@@ -5132,10 +5138,24 @@ local function GetGui()
     rootGui.ResetOnSpawn = false
     rootGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     rootGui.DisplayOrder = 999
-    local okParent = pcall(function()
-        rootGui.Parent = (gethui and gethui()) or PlayerGui
+    -- Delta dan executor lain tidak selalu menyediakan gethui dengan cara sama.
+    local parented = false
+    local okHui, hui = pcall(function()
+        if type(gethui) == "function" then
+            return gethui()
+        end
+        return nil
     end)
-    if not okParent or not rootGui.Parent then
+    if okHui and hui then
+        parented = pcall(function() rootGui.Parent = hui end) and rootGui.Parent ~= nil
+    end
+    if not parented then
+        local okCore, core = pcall(function() return game:GetService("CoreGui") end)
+        if okCore and core then
+            parented = pcall(function() rootGui.Parent = core end) and rootGui.Parent ~= nil
+        end
+    end
+    if not parented then
         rootGui.Parent = PlayerGui
     end
     return rootGui
@@ -7657,7 +7677,28 @@ PlayerGui.DescendantAdded:Connect(HookTextBox)
 
 Player.Chatted:Connect(Process)
 
-BuildLauncher()
+-- Buat launcher dalam pcall supaya error UI terlihat di console executor,
+-- bukan membuat seluruh akhir skrip berhenti tanpa petunjuk.
+local launcherOK, launcherError = pcall(BuildLauncher)
+if not launcherOK then
+    warn("[Peex HUB] Launcher gagal dibuat: " .. tostring(launcherError))
+    pcall(function()
+        local fallback = Instance.new("ScreenGui")
+        fallback.Name = "PeexHubGB_Fallback"
+        fallback.ResetOnSpawn = false
+        fallback.Parent = PlayerGui
+        local open = Instance.new("TextButton")
+        open.Name = "OpenPeexHub"
+        open.Size = UDim2.fromOffset(52, 52)
+        open.Position = UDim2.new(0, 14, 0.5, -26)
+        open.Text = "P"
+        open.TextSize = 20
+        open.Parent = fallback
+        open.MouseButton1Click:Connect(function()
+            pcall(function() OpenHub("features") end)
+        end)
+    end)
+end
 
 -- Auto-reload: antrekan skrip untuk server/world berikutnya
 pcall(QueueReload)
