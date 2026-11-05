@@ -21,7 +21,7 @@
       autorejoin|arj         Rejoin otomatis kalau terputus
       session|sesi           GUI sesi (simpan & pulihkan otomatis)
       af|autofarm [on|off]   GUI Auto Farm (kecepatan pukulan, ID block, grid 5x5)
-      ac|autoclear [on|off]  Auto Clear World (GrowScan dulu, break 1-4 block per pukulan (bisa diatur), ambil drop)
+      ac|autoclear [on|off]  Auto Clear World (GrowScan, grup 1-4 tile, mode jalan/teleport, ambil drop)
       df|autodf [on|off]     Auto DF: dig ke bawah (break block di bawah karakter)
       ctp|clicktp [on|off]   Click TP: klik mana saja, jalan lewat path (tampil seperti teleport)
       move|mv <walk|fly|mix> Mode gerak: jalan / terbang / campur
@@ -131,8 +131,9 @@ local Config = {
     farmTake = true,    -- teleport ambil item setelah break
     -- Auto Clear World
     clearBreakDelay = 0.22, -- jeda antar putaran pukulan (detik); game sendiri memukul tiap 0.22 dtk
-    clearBatch = 2,         -- jumlah block yang dipukul tiap putaran (1-4)
-    clearTpDelay = 0.25,    -- jeda setelah teleport (detik)
+    clearBatch = 3,         -- jumlah tile per grup pukulan (1-4), default 3
+    clearMoveMode = "walk", -- "walk" = jalan lewat path | "teleport" = pindah langsung
+    clearTpDelay = 0.25,    -- jeda setelah gerak / teleport (detik)
     clearTake = true,       -- ambil item drop otomatis
     -- Spam Chat
     spamText = "",         -- teks yang dikirim berulang (isi lewat /setspam atau tab Spam)
@@ -175,6 +176,14 @@ local function SaveConfig()
 end
 
 LoadConfig()
+-- Migrasi nilai default lama (2 tile) ke default baru (3 tile).
+if Config.clearBatch == 2 then
+    Config.clearBatch = 3
+    SaveConfig()
+end
+if Config.clearMoveMode ~= "walk" and Config.clearMoveMode ~= "teleport" then
+    Config.clearMoveMode = "walk"
+end
 
 ----------------------------------------------------------------------
 -- UTIL
@@ -1823,13 +1832,13 @@ end
 -- AUTO CLEAR WORLD
 -- Prioritas pukul: Dirt -> Cave -> block lainnya.
 -- 1) GrowScan dulu (hitung isi world) -> 2) kumpulkan semua tile yang boleh
--- dipecah (lock, area & bedrock DILEWATI; bg di balik bedrock ikut dilewati) -> 3) teleport ke dekat grup 4 tile
--- -> 4) pukul 4 tile SEKALIGUS dalam satu putaran -> 5) ambil item drop.
--- Delay teleport & delay break bisa diatur di tab Clear.
+-- dipecah (lock, area & bedrock DILEWATI; bg di balik bedrock ikut dilewati) -> 3) bergerak ke dekat grup hingga 3 tile
+-- -> 4) pukul tile dalam grup SEKALIGUS -> 5) ambil item drop.
+-- Mode gerak (jalan/teleport) dan delay bisa diatur di tab Clear.
 ----------------------------------------------------------------------
 do
     local function BatchSize()
-        return math.clamp(math.floor(tonumber(Config.clearBatch) or 2), 1, 4)
+        return math.clamp(math.floor(tonumber(Config.clearBatch) or 3), 1, 4)
     end
 
     -- Tile yang TIDAK boleh dipecah: lock, area, bedrock, hits <= 0, door utama
@@ -1928,10 +1937,12 @@ do
             return 3
         end
 
+        for _, tile in ipairs(list) do
+            tile.priority = ClearPriority(tile)
+        end
         table.sort(list, function(p, q)
-            local pp, qp = ClearPriority(p), ClearPriority(q)
-            if pp ~= qp then
-                return pp < qp
+            if p.priority ~= q.priority then
+                return p.priority < q.priority
             end
             if p.y ~= q.y then
                 return p.y < q.y
@@ -1944,7 +1955,7 @@ do
         return list
     end
 
-    -- Bentuk grup maksimal 4 tile yang saling berdekatan
+    -- Bentuk grup maksimal sesuai Tile per grup; jangan campur urutan prioritas.
     local function MakeGroups(list, reach)
         local groups, used = {}, {}
         for i, first in ipairs(list) do
@@ -1952,11 +1963,12 @@ do
                 used[i] = true
                 local g = { first }
                 for j = i + 1, math.min(#list, i + 60) do
-                    if #g >= 1 then
+                    if #g >= BatchSize() then
                         break
                     end
                     local t = list[j]
-                    if not used[j] and math.abs(t.x - first.x) <= reach and math.abs(t.y - first.y) <= reach then
+                    if not used[j] and t.priority == first.priority
+                        and math.abs(t.x - first.x) <= reach and math.abs(t.y - first.y) <= reach then
                         used[j] = true
                         table.insert(g, t)
                     end
@@ -2036,6 +2048,25 @@ do
         return group
     end
 
+    -- Gerakan khusus Auto Clear, tidak memakai Config.moveMode global.
+    -- Mode jalan tidak pernah fallback ke teleport; mode teleport memakai goTo langsung.
+    local function MoveClearTo(x, y, token)
+        if Clear.token ~= token then
+            return false, "cancel"
+        end
+        if Config.clearMoveMode == "walk" then
+            return Nav.Walk(x, y, function()
+                return Clear.token ~= token
+            end)
+        end
+        local world = FindWorld()
+        if not world or type(rawget(world, "goTo")) ~= "function" then
+            return false, "world"
+        end
+        local ok, err = pcall(world.goTo, x, y)
+        return ok, err
+    end
+
     local function TakeDrops(world, before, token, home)
         local ok, list = pcall(world.dropList)
         if not ok or type(list) ~= "table" then
@@ -2054,7 +2085,7 @@ do
                 break
             end
             if table.find(list, drop) then
-                local reached = Nav.To(math.floor(drop.x), math.floor(drop.y), function() return Clear.token ~= token end)
+                local reached = MoveClearTo(math.floor(drop.x), math.floor(drop.y), token)
                 task.wait(math.max(0.03, Config.clearTpDelay))
                 local waited = os.clock()
                 while reached and Clear.token == token and table.find(list, drop) and os.clock() - waited < 0.8 do
@@ -2066,7 +2097,7 @@ do
             end
         end
         if home then
-            Nav.To(home.x, home.y, function() return Clear.token ~= token end)
+            MoveClearTo(home.x, home.y, token)
             task.wait(math.max(0.03, Config.clearTpDelay))
         end
         return picked
@@ -2146,7 +2177,7 @@ do
                     local px, py = GetTile()
                     local reachable = true
                     if px ~= spot.x or py ~= spot.y then
-                        reachable = Nav.To(spot.x, spot.y, function() return Clear.token ~= token end)
+                        reachable = MoveClearTo(spot.x, spot.y, token)
                         task.wait(math.max(0.03, Config.clearTpDelay))
                     end
                     -- pastikan posisi player benar-benar sudah dekat grup (kalau tidak, pukulan meleset)
@@ -2163,18 +2194,18 @@ do
                         return true
                     end
                     if not reachable or not InReach() then
-                        pcall(world.goTo, spot.x, spot.y)
+                        reachable = MoveClearTo(spot.x, spot.y, token)
                         task.wait(math.max(0.05, Config.clearTpDelay))
-                        reachable = InReach()
+                        reachable = reachable and InReach()
                     end
                     while not reachable and Clear.token == token do
                         Clear.status = string.format("Mencari posisi untuk target (%d,%d)", group[1].x, group[1].y)
                         task.wait(0.5)
                         local retrySpot = StandingSpot(world, group, reach)
                         if retrySpot then
-                            pcall(world.goTo, retrySpot.x, retrySpot.y)
+                            reachable = MoveClearTo(retrySpot.x, retrySpot.y, token)
                             task.wait(math.max(0.05, Config.clearTpDelay))
-                            reachable = InReach()
+                            reachable = reachable and InReach()
                         end
                     end
                     if Clear.token ~= token then
@@ -2239,7 +2270,7 @@ do
         end
         local world = FindWorld()
         if world and Clear.token == token then
-            Nav.To(home.x, home.y, function() return Clear.token ~= token end)
+            MoveClearTo(home.x, home.y, token)
         end
         Clear.status = "Selesai"
         Notify(string.format("Auto Clear selesai: %d pecah, %d diambil, %d dilewati.",
@@ -2277,7 +2308,7 @@ do
             Notify("World tidak ditemukan.")
             return false
         end
-        -- Longhand otomatis supaya 4 tile sekaligus terjangkau
+        -- Longhand otomatis supaya grup 3 tile terjangkau
         local inv = FindInventory()
         local okRange, range = pcall(function() return inv.buildRange() end)
         if okRange and type(range) == "number" and range < 4.5 then
@@ -4643,7 +4674,7 @@ end
 
 -- Halaman: Auto Clear World ------------------------------------------
 hub.builders.clear = function(page)
-    local status = AddCard(page, 78)
+    local status = AddCard(page, 84)
     local statusLabel = Label(status, {
         Position = UDim2.fromOffset(12, 6),
         Size = UDim2.new(1, -24, 1, -12),
@@ -4654,8 +4685,9 @@ hub.builders.clear = function(page)
     local function UpdateStatus()
         local st = Clear.stats
         statusLabel.Text = string.format(
-            "Status: %s  (pass %d)\nTarget %d  |  Sisa %d  |  Dilewati %d\nPecah %d  Ambil %d\nDelay break %.2f dtk  |  delay teleport %.2f dtk",
-            Clear.status, st.pass, st.scanned, st.left, st.skipped, st.broken, st.picked,
+            "Status: %s  (pass %d)  |  Mode: %s\nTarget %d  |  Sisa %d  |  Dilewati %d\nPecah %d  Ambil %d\nDelay break %.2f dtk  |  delay gerak %.2f dtk",
+            Clear.status, st.pass, Config.clearMoveMode == "walk" and "Jalan" or "Teleport",
+            st.scanned, st.left, st.skipped, st.broken, st.picked,
             Config.clearBreakDelay, Config.clearTpDelay)
     end
     UpdateStatus()
@@ -4671,8 +4703,29 @@ hub.builders.clear = function(page)
         Features.autoclear.get, function(on) SetFeature("autoclear", on) end)
 
     AddSection(page, "Pengaturan")
-    AddInputCard(page, "Block per pukulan", "Berapa block dipukul tiap putaran (1 sampai 4). Default 2.",
-        Config.clearBatch, "2", function(text, box)
+    AddNote(page, "Jalan = lewat jalur kosong (pathfinding). Teleport = pindah langsung ke posisi target.")
+    local walkButton, teleportButton
+    local function UpdateClearMoveButtons()
+        local walkActive = Config.clearMoveMode == "walk"
+        walkButton.Text = walkActive and "✓ Jalan (aktif)" or "Jalan"
+        teleportButton.Text = (not walkActive) and "✓ Teleport (aktif)" or "Teleport"
+    end
+    walkButton = AddButton(page, "Jalan", "ghost", function()
+        Config.clearMoveMode = "walk"
+        SaveConfig()
+        UpdateClearMoveButtons()
+        Notify("Mode Auto Clear: Jalan")
+    end)
+    teleportButton = AddButton(page, "Teleport", "ghost", function()
+        Config.clearMoveMode = "teleport"
+        SaveConfig()
+        UpdateClearMoveButtons()
+        Notify("Mode Auto Clear: Teleport")
+    end)
+    UpdateClearMoveButtons()
+
+    AddInputCard(page, "Tile per grup", "Jumlah tile yang dipukul bersama (1 sampai 4). Default 3.",
+        Config.clearBatch, "3", function(text, box)
             local value = tonumber(text)
             if value and value >= 1 and value <= 4 then
                 Config.clearBatch = math.floor(value)
@@ -4693,7 +4746,7 @@ hub.builders.clear = function(page)
                 Notify("Isi angka 0.03 sampai 5.")
             end
         end)
-    AddInputCard(page, "Delay teleport", "Jeda setelah pindah posisi / ambil drop (detik).",
+    AddInputCard(page, "Delay gerak", "Jeda setelah berpindah posisi / ambil drop (detik).",
         Config.clearTpDelay, "0.25", function(text, box)
             local value = tonumber(text)
             if value and value >= 0.03 and value <= 5 then
@@ -4704,7 +4757,7 @@ hub.builders.clear = function(page)
                 Notify("Isi angka 0.03 sampai 5.")
             end
         end)
-    AddSwitchCard(page, "Ambil item otomatis", "Teleport ke item drop setelah break, sapu sisa di akhir.",
+    AddSwitchCard(page, "Ambil item otomatis", "Bergerak ke item drop sesuai mode Auto Clear, sapu sisa di akhir.",
         function() return Config.clearTake end,
         function(on)
             Config.clearTake = on
@@ -4724,8 +4777,8 @@ hub.builders.clear = function(page)
             Notify(string.format("GrowScan: %d fg, %d bg, %d item drop (world %dx%d)", fg, bg, drops, scan.w, scan.h))
         end)
     end)
-    AddNote(page, "Alur: scan isi world -> pecah per 1-4 block -> ambil drop -> ulang sampai bersih. "
-        .. "Block lock, area, bedrock, dan door utama tidak disentuh. Berdiri di world milikmu sebelum menyalakan.")
+    AddNote(page, "Alur: scan isi world -> pecah per grup 1-4 tile (default 3) -> ambil drop -> ulang sampai bersih. "
+        .. "Pilih Jalan atau Teleport khusus Auto Clear. Block lock, area, bedrock, dan door utama tidak disentuh.")
 end
 
 -- Halaman: Spam Chat -------------------------------------------------
