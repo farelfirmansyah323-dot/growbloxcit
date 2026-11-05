@@ -5059,19 +5059,20 @@ end
 -- GUI
 ----------------------------------------------------------------------
 local C = {
-    window = Color3.fromRGB(255, 236, 179),
-    panel = Color3.fromRGB(255, 249, 226),
-    card = Color3.fromRGB(255, 255, 255),
-    cardHi = Color3.fromRGB(255, 214, 102),
-    stroke = Color3.fromRGB(74, 44, 42),
-    accent = Color3.fromRGB(255, 140, 66),
-    accent2 = Color3.fromRGB(77, 196, 255),
-    text = Color3.fromRGB(74, 44, 42),
-    mute = Color3.fromRGB(153, 110, 84),
-    ok = Color3.fromRGB(94, 214, 92),
-    bad = Color3.fromRGB(255, 96, 96),
+    -- Dark Blue Neon Premium theme (GUI only)
+    window = Color3.fromRGB(8, 14, 27),
+    panel = Color3.fromRGB(13, 23, 42),
+    card = Color3.fromRGB(20, 34, 57),
+    cardHi = Color3.fromRGB(30, 54, 85),
+    stroke = Color3.fromRGB(42, 72, 112),
+    accent = Color3.fromRGB(38, 117, 255),
+    accent2 = Color3.fromRGB(44, 211, 255),
+    text = Color3.fromRGB(232, 242, 255),
+    mute = Color3.fromRGB(139, 163, 194),
+    ok = Color3.fromRGB(45, 205, 140),
+    bad = Color3.fromRGB(239, 76, 100),
 }
-local CARTOON_FONT = Enum.Font.FredokaOne
+local CARTOON_FONT = Enum.Font.GothamSemibold
 
 local function New(class, props, parent)
     local obj = Instance.new(class)
@@ -5083,15 +5084,22 @@ local function New(class, props, parent)
 end
 
 local function Corner(obj, radius)
-    return New("UICorner", { CornerRadius = UDim.new(0, math.floor(radius * 1.5)) }, obj)
+    return New("UICorner", { CornerRadius = UDim.new(0, math.floor(radius)) }, obj)
 end
 
 local function Stroke(obj, color, thickness, transparency)
     return New("UIStroke", {
         Color = color,
-        Thickness = math.max(2, (thickness or 1) * 2),
-        Transparency = math.min(transparency or 0, 0.15),
+        Thickness = math.max(1, thickness or 1),
+        Transparency = math.clamp(transparency or 0, 0, 1),
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+    }, obj)
+end
+
+local function Gradient(obj, first, second, rotation)
+    return New("UIGradient", {
+        Color = ColorSequence.new(first, second),
+        Rotation = rotation or 90,
     }, obj)
 end
 
@@ -5230,6 +5238,7 @@ local hub = {
     refreshers = {},
     active = nil,
     narrow = false,
+    launcherInputConn = nil,
 }
 
 local orders = setmetatable({}, { __mode = "k" })
@@ -5254,19 +5263,32 @@ local function AddCard(page, height)
         LayoutOrder = NextOrder(page),
     }, page)
     Corner(card, 10)
-    Stroke(card, C.stroke, 1, 0.55)
+    Stroke(card, C.stroke, 1, 0.35)
+    Gradient(card, C.card, Color3.fromRGB(15, 28, 48), 90)
     return card
 end
 
 local function AddSection(page, text)
-    return Label(page, {
-        Size = UDim2.new(1, 0, 0, 18),
+    local wrap = New("Frame", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        LayoutOrder = NextOrder(page),
+    }, page)
+    local marker = New("Frame", {
+        Position = UDim2.fromOffset(1, 5),
+        Size = UDim2.fromOffset(3, 12),
+        BackgroundColor3 = C.accent2,
+        BorderSizePixel = 0,
+    }, wrap)
+    Corner(marker, 2)
+    return Label(wrap, {
+        Position = UDim2.fromOffset(10, 0),
+        Size = UDim2.new(1, -10, 1, 0),
         Text = string.upper(text),
         TextColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 11,
+        Font = Enum.Font.GothamBold,
+        TextSize = 10,
         TextWrapped = false,
-        LayoutOrder = NextOrder(page),
     })
 end
 
@@ -5284,11 +5306,14 @@ end
 local function StyleButton(button, style)
     local base, hover
     if style == "primary" then
-        base, hover = C.accent, Color3.fromRGB(255, 168, 102)
+        base, hover = C.accent, Color3.fromRGB(67, 143, 255)
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
     elseif style == "danger" then
-        base, hover = C.bad, Color3.fromRGB(255, 134, 134)
+        base, hover = C.bad, Color3.fromRGB(255, 99, 122)
+        button.TextColor3 = Color3.fromRGB(255, 255, 255)
     else
-        base, hover = C.cardHi, Color3.fromRGB(255, 229, 150)
+        base, hover = C.cardHi, Color3.fromRGB(39, 68, 105)
+        button.TextColor3 = C.text
     end
     button.BackgroundColor3 = base
     button.AutoButtonColor = false
@@ -6889,8 +6914,11 @@ local function SwitchTab(id)
     end
     for tabId, tab in pairs(hub.tabs) do
         local active = (tabId == id)
-        Tween(tab.button, 0.15, { BackgroundTransparency = active and 0 or 1 })
-        tab.label.TextColor3 = active and C.text or C.mute
+        Tween(tab.button, 0.15, {
+            BackgroundTransparency = active and 0 or 1,
+            BackgroundColor3 = active and C.cardHi or C.card,
+        })
+        tab.label.TextColor3 = active and C.accent2 or C.mute
         tab.bar.Visible = active
     end
 end
@@ -6912,7 +6940,8 @@ local function MakeDraggable(handle, frame)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
+    -- Satu listener per window; putuskan saat window dihancurkan.
+    local moveConn = UserInputService.InputChanged:Connect(function(input)
         if dragging and frame.Parent and (input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
@@ -6922,21 +6951,36 @@ local function MakeDraggable(handle, frame)
             )
         end
     end)
+    frame.Destroying:Connect(function()
+        if moveConn then
+            moveConn:Disconnect()
+            moveConn = nil
+        end
+    end)
 end
 
 local function CloseHub()
     local frame = hub.frame
-    if not frame then
+    if not frame or not frame.Parent then
+        hub.frame = nil
+        hub.active = nil
+        hub.minimized = false
         return
     end
+
+    -- Lepas referensi terlebih dahulu agar klik berulang tidak menutup
+    -- instance baru yang mungkin dibuka sesudahnya.
     hub.frame = nil
     hub.active = nil
     hub.minimized = false
-    if hub.scale then
-        Tween(hub.scale, 0.12, { Scale = 0.92 })
+    local closingScale = frame:FindFirstChildOfClass("UIScale")
+    if closingScale then
+        Tween(closingScale, 0.12, { Scale = 0.94 })
     end
-    task.delay(0.13, function()
-        frame:Destroy()
+    task.delay(0.14, function()
+        if frame and frame.Parent then
+            frame:Destroy()
+        end
     end)
 end
 hub.close = CloseHub
@@ -6948,8 +6992,8 @@ local function OpenHub(tabId)
     end
 
     local viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
-    local width = math.clamp(viewport.X - 20, 300, 580)
-    local height = math.clamp(viewport.Y - 40, 270, 420)
+    local width = math.clamp(viewport.X - 28, 320, 640)
+    local height = math.clamp(viewport.Y - 48, 300, 500)
     local sidebarWidth = (width < 440) and 52 or 128
     hub.narrow = width < 440
 
@@ -6958,12 +7002,15 @@ local function OpenHub(tabId)
         Size = UDim2.fromOffset(width, height),
         Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2),
         BackgroundColor3 = C.window,
+        BackgroundTransparency = 0,
         BorderSizePixel = 0,
         Active = true,
+        ClipsDescendants = true,
     }, GetGui())
-    Corner(frame, 14)
+    Corner(frame, 16)
+    Gradient(frame, Color3.fromRGB(11, 20, 38), Color3.fromRGB(5, 10, 21), 35)
 
-    Stroke(frame, C.stroke, 2, 0)
+    Stroke(frame, C.stroke, 1.4, 0.05)
 
     local scale = New("UIScale", { Scale = 0.92 }, frame)
     hub.frame = frame
@@ -6981,25 +7028,31 @@ local function OpenHub(tabId)
 
     local title = Label(header, {
         Text = "PEEX HUB",
-        Font = CARTOON_FONT,
-        TextSize = 19,
-        TextColor3 = Color3.fromRGB(255, 140, 66),
-        TextStrokeColor3 = C.stroke,
-        TextStrokeTransparency = 0,
+        Font = Enum.Font.GothamBlack,
+        TextSize = 18,
+        TextColor3 = C.accent2,
         Position = UDim2.fromOffset(16, 0),
-        Size = UDim2.fromOffset(100, 44),
+        Size = UDim2.fromOffset(112, 44),
         TextWrapped = false,
     })
 
     Label(header, {
-        Text = "GrowBlox  v7",
+        Text = "GROWBLOX  /  PREMIUM",
         TextColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 11,
-        Position = UDim2.fromOffset(112, 3),
-        Size = UDim2.fromOffset(100, 44),
+        Font = Enum.Font.GothamMedium,
+        TextSize = 9,
+        Position = UDim2.fromOffset(132, 3),
+        Size = UDim2.fromOffset(150, 44),
         TextWrapped = false,
     })
+    local live = New("Frame", {
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -84, 0.5, 0),
+        Size = UDim2.fromOffset(7, 7),
+        BackgroundColor3 = C.ok,
+        BorderSizePixel = 0,
+    }, header)
+    Corner(live, 4)
 
     local close = MakeButton(header, "X", "danger", {
         AnchorPoint = Vector2.new(1, 0.5),
@@ -7021,14 +7074,24 @@ local function OpenHub(tabId)
     MakeDraggable(header, frame)
 
     local accentLine = New("Frame", {
-        Position = UDim2.new(0, 12, 0, 43),
-        Size = UDim2.new(1, -24, 0, 2),
+        Position = UDim2.new(0, 14, 0, 43),
+        Size = UDim2.new(1, -28, 0, 1),
         BackgroundColor3 = C.stroke,
         BorderSizePixel = 0,
     }, frame)
     Corner(accentLine, 1)
 
     -- Sidebar
+    local sidebarBack = New("Frame", {
+        Position = UDim2.fromOffset(8, 48),
+        Size = UDim2.new(0, sidebarWidth - 8, 1, -56),
+        BackgroundColor3 = C.panel,
+        BorderSizePixel = 0,
+    }, frame)
+    Corner(sidebarBack, 12)
+    Stroke(sidebarBack, C.stroke, 1, 0.55)
+    Gradient(sidebarBack, Color3.fromRGB(15, 28, 49), Color3.fromRGB(8, 17, 31), 90)
+
     local sidebar = New("ScrollingFrame", {
         Position = UDim2.fromOffset(8, 48),
         Size = UDim2.new(0, sidebarWidth - 8, 1, -56),
@@ -7047,8 +7110,9 @@ local function OpenHub(tabId)
         BackgroundColor3 = C.panel,
         BorderSizePixel = 0,
     }, frame)
-    Corner(panel, 10)
-    Stroke(panel, C.stroke, 1, 0)
+    Corner(panel, 12)
+    Stroke(panel, C.stroke, 1, 0.2)
+    Gradient(panel, Color3.fromRGB(16, 30, 52), Color3.fromRGB(10, 19, 35), 90)
 
     hub.minimized = false
     minimize.MouseButton1Click:Connect(function()
@@ -7061,7 +7125,7 @@ local function OpenHub(tabId)
 
     for index, tab in ipairs(TAB_ORDER) do
         local button = New("TextButton", {
-            Size = UDim2.new(1, 0, 0, 32),
+            Size = UDim2.new(1, 0, 0, 34),
             BackgroundColor3 = C.cardHi,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
@@ -7151,15 +7215,15 @@ end
 local function BuildLauncher()
     local holder = New("Frame", {
         Name = "Launcher",
-        Size = UDim2.fromOffset(44, 44),
-        Position = UDim2.new(0, 12, 0.5, -22),
+        Size = UDim2.fromOffset(48, 48),
+        Position = UDim2.new(0, 14, 0.5, -24),
         BackgroundColor3 = C.accent,
         BorderSizePixel = 0,
         Visible = Config.launcher,
         ZIndex = 50,
     }, GetGui())
-    Corner(holder, 22)
-    Stroke(holder, C.stroke, 1.5, 0)
+    Corner(holder, 24)
+    Stroke(holder, C.accent2, 1.5, 0.05)
     hub.launcher = holder
 
     local button = New("TextButton", {
@@ -7167,9 +7231,7 @@ local function BuildLauncher()
         BackgroundTransparency = 1,
         Text = "P",
         TextColor3 = Color3.new(1, 1, 1),
-        TextStrokeColor3 = C.stroke,
-        TextStrokeTransparency = 0,
-        Font = CARTOON_FONT,
+        Font = Enum.Font.GothamBlack,
         TextSize = 20,
         ZIndex = 51,
     }, holder)
@@ -7195,7 +7257,11 @@ local function BuildLauncher()
             end)
         end
     end)
-    UserInputService.InputChanged:Connect(function(input)
+    if hub.launcherInputConn then
+        hub.launcherInputConn:Disconnect()
+        hub.launcherInputConn = nil
+    end
+    hub.launcherInputConn = UserInputService.InputChanged:Connect(function(input)
         if dragging and holder.Parent and (input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - dragStart
