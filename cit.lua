@@ -1,5 +1,7 @@
 --[[
-    Peex HUB | GrowBlox  (v9 - Pathfinding, tanpa Key System)  +  GUI Redesign
+    Peex HUB | GrowBlox  (v9.2 - Auto DF, Pathfinding, tanpa Key System)  +  GUI Redesign
+    Perbaikan v9.1: GUI dipasang lewat gethui()/CoreGui (fallback PlayerGui),
+    ScanGc dibatasi (anti-lag mobile), pengaman bangun-ulang GUI.
     Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
 
       wld|wd <jumlah>        Drop World Lock
@@ -20,6 +22,7 @@
       session|sesi           GUI sesi (simpan & pulihkan otomatis)
       af|autofarm [on|off]   GUI Auto Farm (kecepatan pukulan, ID block, grid 5x5)
       ac|autoclear [on|off]  Auto Clear World (GrowScan dulu, break 1-4 block per pukulan (bisa diatur), ambil drop)
+      df|autodf [on|off]     Auto DF: dig ke bawah (break block di bawah karakter)
       ctp|clicktp [on|off]   Click TP: klik mana saja, jalan lewat path (tampil seperti teleport)
       move|mv <walk|fly|mix> Mode gerak: jalan / terbang / campur
       spam [on|off]          Kirim teks spam ke chat berulang
@@ -38,12 +41,40 @@
 
 -- Cegah dobel-eksekusi (hanya blok kalau GUI-nya benar-benar masih ada)
 local genv = (getgenv and getgenv()) or _G
+
+local function FindExistingGui()
+    local parents = {}
+    pcall(function()
+        if gethui then
+            table.insert(parents, gethui())
+        end
+    end)
+    pcall(function()
+        table.insert(parents, game:GetService("CoreGui"))
+    end)
+    pcall(function()
+        table.insert(parents, game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui"))
+    end)
+    for _, parent in ipairs(parents) do
+        local ok, found = pcall(function()
+            return parent:FindFirstChild("PeexHubGB")
+        end)
+        if ok and found then
+            return found
+        end
+    end
+    return nil
+end
+
 do
-    local lp = game:GetService("Players").LocalPlayer
-    local pg = lp and lp:FindFirstChild("PlayerGui")
-    local alive = pg and pg:FindFirstChild("PeexHubGB")
+    local alive = FindExistingGui()
     if genv.PeexHubGB_Loaded and alive then
         pcall(function()
+            alive.Enabled = true
+            local launcher = alive:FindFirstChild("Launcher")
+            if launcher then
+                launcher.Visible = true
+            end
             game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "Peex HUB | GrowBlox",
                 Text = "Sudah aktif. Tekan tombol P atau ketik /hpx.",
@@ -111,6 +142,9 @@ local Config = {
     moveMode = "mix",       -- "walk" = jalan lewat path | "fly" = terbang lurus tembus block | "mix" = jalan dulu, kalau buntu terbang
     navSpeed = 2,           -- jumlah tile per frame saat menyusuri path (1-12)
     clickTpShift = false,   -- Click TP hanya aktif kalau tahan Shift kiri atau kanan (PC)
+    -- Auto DF (dig ke bawah)
+    dfDelay = 0.22,         -- jeda antar pukulan (detik)
+    dfFlip = false,         -- true kalau arah "bawah" ternyata terbalik di game
 }
 
 local SCRIPT_FILE = "PeexHub_GrowBlox.lua"
@@ -186,7 +220,7 @@ end
 ----------------------------------------------------------------------
 -- AKSES KE INTERNAL GAME (lewat getgc)
 ----------------------------------------------------------------------
-local cache = {}
+local cache = { _scan = {} }
 
 local function ScanGc(name, check)
     local cached = cache[name]
@@ -196,6 +230,13 @@ local function ScanGc(name, check)
     if not getgcFn then
         return nil
     end
+    -- jangan scan memori lebih sering dari tiap 3 detik (anti-lag di mobile)
+    local now = os.clock()
+    local last = cache._scan[name]
+    if last and now - last < 3 then
+        return nil
+    end
+    cache._scan[name] = now
     for _, obj in ipairs(getgcFn(true)) do
         if type(obj) == "table" then
             local ok, valid = pcall(check, obj)
@@ -946,6 +987,7 @@ local SearchItems, ItemName, StartFarm, StopFarm, StartQuest, StopQuest, QuestRe
 local farmOn, questOn, godOn = false, false, false
 local Nav = { clickOn = false, token = 0, conn = nil, last = "-" }
 local Clear = { on = false, token = 0, status = "Mati", stats = { scanned = 0, broken = 0, picked = 0, skipped = 0, left = 0, pass = 0 } }
+local Dig = { on = false, token = 0, status = "Mati", stats = { broken = 0, depth = 0 } }
 local questStatus = "Mati"
 local farmStats = { status = "Mati", placed = 0, broken = 0, picked = 0, cycles = 0 }
 do
@@ -2172,7 +2214,6 @@ do
         return true
     end
 end
-
 ----------------------------------------------------------------------
 -- AUTO QUEST
 -- Modul quest game (QuestsUI) tidak ada di growblox.lua, jadi skrip ini
@@ -2659,6 +2700,161 @@ function ScanWorld()
     return result
 end
 
+----------------------------------------------------------------------
+-- AUTO DF (dig ke bawah)
+-- Break block tepat di bawah karakter, tunggu jatuh, ulangi sampai mentok
+-- (bedrock / lock / dasar world). Block yang dilindungi tidak disentuh.
+----------------------------------------------------------------------
+do
+    local function DfProtected(db, id)
+        local item = db and db[id]
+        if type(item) ~= "table" then
+            return true
+        end
+        if item.lock or item.area then
+            return true
+        end
+        if type(item.hits) == "number" and item.hits <= 0 then
+            return true
+        end
+        local name = type(item.name) == "string" and item.name:lower() or ""
+        if name:find("bedrock", 1, true) or name:find("main door", 1, true)
+            or name:find("white door", 1, true) or name:find("world lock", 1, true) then
+            return true
+        end
+        return false
+    end
+
+    local function DfLoop(token, home)
+        local db = GetItemDB()
+        local hit = FindGameFn("hit")
+        if not db or not hit then
+            Dig.status = "Fungsi game tidak ditemukan"
+            return
+        end
+        local dir = Config.dfFlip and -1 or 1
+        local idle = 0
+        while Dig.token == token do
+            local world = FindWorld()
+            if not world or CurrentWorldName() ~= home.world then
+                Dig.status = "World berubah, berhenti"
+                Notify("Auto DF berhenti: kamu pindah world.")
+                return
+            end
+            local tx, ty = GetTile()
+            if not tx then
+                Dig.status = "Posisi tidak terdeteksi"
+                task.wait(0.3)
+                continue
+            end
+            local bx, by = tx, ty + dir
+            if not InBounds(world, bx, by) then
+                Dig.status = "Sampai dasar world"
+                Notify("Auto DF selesai: sampai dasar world.")
+                break
+            end
+            Dig.stats.depth = math.max(Dig.stats.depth, math.abs(ty - home.y))
+            local id = TileValue(world, "fg", bx, by)
+            if id and id ~= 0 then
+                if DfProtected(db, id) then
+                    Dig.status = "Mentok: " .. ItemName(id)
+                    Notify("Auto DF berhenti: mentok " .. ItemName(id) .. ".")
+                    break
+                end
+                Dig.status = "Break " .. ItemName(id)
+                idle = 0
+                local started = os.clock()
+                while Dig.token == token and TileValue(world, "fg", bx, by) == id do
+                    if os.clock() - started > 8 then
+                        break
+                    end
+                    pcall(hit, bx, by, true)
+                    task.wait(math.max(0.03, Config.dfDelay))
+                end
+                if TileValue(world, "fg", bx, by) ~= id then
+                    Dig.stats.broken += 1
+                end
+                -- tunggu karakter jatuh ke bawah
+                local waited = os.clock()
+                while Dig.token == token and os.clock() - waited < 1.2 do
+                    local _, cy = GetTile()
+                    if cy and cy ~= ty then
+                        break
+                    end
+                    task.wait(0.05)
+                end
+            else
+                -- tile bawah kosong: sedang jatuh (atau tersangkut di udara)
+                Dig.status = "Turun..."
+                task.wait(0.15)
+                idle += 0.15
+                if idle >= 2 then
+                    pcall(world.goTo, bx, by)
+                    idle = 0
+                end
+            end
+        end
+    end
+
+    function Dig.Stop()
+        if not Dig.on then
+            return false
+        end
+        Dig.token += 1
+        Dig.on = false
+        Dig.status = "Mati"
+        return true
+    end
+
+    function Dig.Start()
+        if Dig.on then
+            return true
+        end
+        if farmOn then
+            StopFarm()
+        end
+        if Clear.on then
+            Clear.Stop()
+        end
+        if not (FindGameFn("hit") and GetItemDB()) then
+            Notify("Fungsi hit game tidak ditemukan (executor perlu getgc + debug.info).")
+            return false
+        end
+        local x, y = GetGridState()
+        if not x then
+            Notify("Posisi tidak terdeteksi!")
+            return false
+        end
+        local home = {
+            x = math.floor(x),
+            y = math.floor(y - 0.475),
+            world = CurrentWorldName(),
+        }
+        Dig.token += 1
+        local token = Dig.token
+        Dig.on = true
+        Dig.status = "Mulai"
+        Dig.stats = { broken = 0, depth = 0 }
+        task.spawn(function()
+            local ok, err = pcall(DfLoop, token, home)
+            if not ok then
+                warn(err)
+                Notify("Auto DF error: " .. tostring(err))
+            end
+            if Dig.token == token then
+                Dig.on = false
+                if Dig.status == "Mulai" or Dig.status == "Turun..." or Dig.status:find("^Break") then
+                    Dig.status = "Mati"
+                end
+                if RefreshHub then
+                    RefreshHub()
+                end
+            end
+        end)
+        return true
+    end
+end
+
 end
 
 ----------------------------------------------------------------------
@@ -2856,6 +3052,14 @@ local Features = {
         set = function(on)
             if on then return Clear.Start() end
             return Clear.Stop()
+        end,
+    },
+    autodf = {
+        label = "Auto DF",
+        get = function() return Dig.on end,
+        set = function(on)
+            if on then return Dig.Start() end
+            return Dig.Stop()
         end,
     },
     autofarm = {
@@ -3087,17 +3291,42 @@ local function GetGui()
     if rootGui and rootGui.Parent then
         return rootGui
     end
-    local existing = PlayerGui:FindFirstChild("PeexHubGB")
+    local existing = FindExistingGui()
     if existing and existing:IsA("ScreenGui") then
         rootGui = existing
         return rootGui
     end
-    rootGui = Instance.new("ScreenGui")
-    rootGui.Name = "PeexHubGB"
-    rootGui.ResetOnSpawn = false
-    rootGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    rootGui.DisplayOrder = 999
-    rootGui.Parent = PlayerGui
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "PeexHubGB"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.DisplayOrder = 999
+    gui.IgnoreGuiInset = true
+    gui.Enabled = true
+
+    pcall(function()
+        if syn and syn.protect_gui then
+            syn.protect_gui(gui)
+        end
+    end)
+
+    local parented = false
+    if gethui then
+        parented = pcall(function()
+            gui.Parent = gethui()
+        end) and gui.Parent ~= nil
+    end
+    if not parented then
+        parented = pcall(function()
+            gui.Parent = game:GetService("CoreGui")
+        end) and gui.Parent ~= nil
+    end
+    if not parented then
+        gui.Parent = PlayerGui
+    end
+
+    rootGui = gui
     return rootGui
 end
 
@@ -3547,6 +3776,8 @@ hub.builders.features = function(page)
         Features.autofarm.get, function(on) SetFeature("autofarm", on) end)
     AddSwitchCard(page, "Auto Clear World", "GrowScan, break 1-4 block per pukulan (bisa diatur), ambil drop (tab Auto Clear).",
         Features.autoclear.get, function(on) SetFeature("autoclear", on) end)
+    AddSwitchCard(page, "Auto DF", "Dig ke bawah: break block di bawah karakter terus sampai mentok (tab Auto DF).",
+        Features.autodf.get, function(on) SetFeature("autodf", on) end)
     AddSwitchCard(page, "Click TP", "Klik tujuan, jalan lewat path tapi terlihat seperti teleport.",
         Features.clicktp.get, function(on) SetFeature("clicktp", on) end)
     AddSwitchCard(page, "Auto Quest", "Claim dan kerjakan quest otomatis (lihat tab Quest).",
@@ -4049,6 +4280,7 @@ local function HelpEntries()
         { p .. "move  |  " .. p .. "mv  <walk/fly/mix>", "Mode gerak: jalan, terbang, atau campur (jalan dulu, buntu = terbang)" },
         { p .. "spam  [on/off]", "Kirim teks spam ke chat berulang (teks diatur lewat setspam / tab Spam)" },
         { p .. "setspam  <teks>", "Atur teks spam, contoh: " .. p .. "setspam Halo semua!" },
+        { p .. "df  |  " .. p .. "autodf  [on/off]", "Auto DF: dig ke bawah, break block di bawah karakter sampai mentok" },
         { p .. "aq  |  " .. p .. "autoquest  [on/off/scan]", "Auto quest; scan = lihat hasil baca quest" },
         { p .. "gs  |  " .. p .. "growscan", "Buka GrowScan" },
         { p .. "god  [on/off]", "God mode: kebal lava, spike, api" },
@@ -4672,11 +4904,60 @@ hub.builders.scan = function(page)
     list.LayoutOrder = NextOrder(page)
 end
 
+-- Halaman: Auto DF (dig ke bawah) ------------------------------------
+hub.builders.dig = function(page)
+    local status = AddCard(page, 62)
+    local statusLabel = Label(status, {
+        Position = UDim2.fromOffset(12, 6),
+        Size = UDim2.new(1, -24, 1, -12),
+        Text = "...",
+        TextSize = 12,
+        TextYAlignment = Enum.TextYAlignment.Top,
+    })
+    local function UpdateStatus()
+        statusLabel.Text = string.format("Status: %s\nBreak %d  |  Kedalaman %d tile\nJeda pukul %.2f dtk",
+            Dig.status, Dig.stats.broken, Dig.stats.depth, Config.dfDelay)
+    end
+    UpdateStatus()
+    local owner = hub.frame
+    task.spawn(function()
+        while hub.frame == owner and owner and owner.Parent do
+            task.wait(0.4)
+            pcall(UpdateStatus)
+        end
+    end)
+
+    AddSwitchCard(page, "Auto DF", "Break block tepat di bawah karakter, jatuh, ulangi sampai mentok.",
+        Features.autodf.get, function(on) SetFeature("autodf", on) end)
+
+    AddSection(page, "Pengaturan")
+    AddInputCard(page, "Kecepatan pukulan", "Jeda antar pukulan (detik). Normal game 0.22, minimum 0.03.",
+        Config.dfDelay, "0.22", function(text, box)
+            local value = tonumber(text)
+            if value and value >= 0.03 and value <= 5 then
+                Config.dfDelay = value
+                SaveConfig()
+            else
+                box.Text = tostring(Config.dfDelay)
+                Notify("Isi angka 0.03 sampai 5.")
+            end
+        end)
+    AddSwitchCard(page, "Balik arah", "Nyalakan kalau karakter malah nge-break ke atas (sumbu Y terbalik).",
+        function() return Config.dfFlip end,
+        function(on)
+            Config.dfFlip = on
+            SaveConfig()
+        end)
+    AddNote(page, "Berdiri di atas tanah, nyalakan Auto DF. Berhenti otomatis kalau ketemu bedrock, lock, "
+        .. "area, atau dasar world, atau kalau kamu pindah world. Command: /df on|off.")
+end
+
 -- Jendela utama ------------------------------------------------------
 local TAB_ORDER = {
     { id = "features", label = "Fitur", icon = "Ft" },
     { id = "farm", label = "Auto Farm", icon = "Fm" },
     { id = "clear", label = "Auto Clear", icon = "Cl" },
+    { id = "dig", label = "Auto DF", icon = "DF" },
     { id = "spam", label = "Spam Chat", icon = "Sp" },
     { id = "nav", label = "Click TP", icon = "TP" },
     { id = "quest", label = "Auto Quest", icon = "Qs" },
@@ -5117,7 +5398,7 @@ local function BuildLauncher()
         TextColor3 = Color3.new(1, 1, 1),
         Font = Enum.Font.GothamBlack,
         TextSize = 22,
-        Visible = Config.launcher,
+        Visible = true,
         ZIndex = 50,
     }, guiRoot)
     Corner(button, 25)
@@ -5354,6 +5635,10 @@ local function HandleMessage(text)
         end
         return true
 
+    elseif command == "autodf" or command == "df" then
+        SetFeature("autodf", WantedState(args, Dig.on))
+        return true
+
     elseif command == "autoquest" or command == "aq" then
         if args == "scan" then
             task.spawn(QuestReport)
@@ -5471,6 +5756,17 @@ do
         end
     end)
 end
+
+-- Pengaman: kalau setelah 2 detik tidak ada GUI sama sekali, bangun ulang
+task.delay(2, function()
+    local hasLauncher = hub.launcher and hub.launcher.Parent
+    local hasWindow = hub.frame and hub.frame.Parent
+    if not hasLauncher and not hasWindow then
+        rootGui = nil
+        pcall(BuildLauncher)
+        pcall(OpenHub, "features")
+    end
+end)
 
 -- Auto-reload: antrekan skrip untuk server/world berikutnya
 pcall(QueueReload)
