@@ -1821,6 +1821,7 @@ end
 
 ----------------------------------------------------------------------
 -- AUTO CLEAR WORLD
+-- Prioritas pukul: Dirt -> Cave -> block lainnya.
 -- 1) GrowScan dulu (hitung isi world) -> 2) kumpulkan semua tile yang boleh
 -- dipecah (lock, area & bedrock DILEWATI; bg di balik bedrock ikut dilewati) -> 3) teleport ke dekat grup 4 tile
 -- -> 4) pukul 4 tile SEKALIGUS dalam satu putaran -> 5) ambil item drop.
@@ -1900,8 +1901,25 @@ do
                 end
             end
         end
-        -- urutan ular (kiri->kanan lalu kanan->kiri) supaya teleport pendek
+        -- Prioritas global: Dirt -> Cave -> block lainnya.
+        -- Setelah prioritas sama, gunakan urutan ular agar perpindahan tetap pendek.
+        local function ClearPriority(tile)
+            local item = db and db[tile.id]
+            local name = type(item) == "table" and type(item.name) == "string"
+                and item.name:lower() or ""
+            if name:find("dirt", 1, true) then
+                return 1
+            elseif name:find("cave", 1, true) then
+                return 2
+            end
+            return 3
+        end
+
         table.sort(list, function(p, q)
+            local pp, qp = ClearPriority(p), ClearPriority(q)
+            if pp ~= qp then
+                return pp < qp
+            end
             if p.y ~= q.y then
                 return p.y < q.y
             end
@@ -1921,7 +1939,7 @@ do
                 used[i] = true
                 local g = { first }
                 for j = i + 1, math.min(#list, i + 60) do
-                    if #g >= BatchSize() then
+                    if #g >= 1 then
                         break
                     end
                     local t = list[j]
@@ -2142,12 +2160,52 @@ do
                         Fail(t, 1)
                         Clear.stats.skipped += 1
                     end
-                    Clear.stats.broken += #group - #failed
-                    Clear.stats.left = math.max(0, Clear.stats.left - #group + #failed)
-                    if Config.clearTake and #group - #failed > 0 then
+                    local dirtBroken = #group - #failed
+                    Clear.stats.broken += dirtBroken
+                    Clear.stats.left = math.max(0, Clear.stats.left - dirtBroken + #failed)
+                    if Config.clearTake and dirtBroken > 0 then
                         task.wait(0.25) -- drop muncul sedikit setelah tile pecah
-                        Clear.status = "Ambil item"
+                        Clear.status = "Ambil drop Dirt"
                         Clear.stats.picked += TakeDrops(world, before, token, nil)
+                    end
+
+                    -- Setelah foreground di lokasi ini pecah, langsung cek Cave
+                    -- di background koordinat yang sama sebelum teleport ke lokasi berikutnya.
+                    local caveGroup = {}
+                    for _, t in ipairs(group) do
+                        if Clear.token ~= token then
+                            return
+                        end
+                        local bg = TileValue(world, "bg", t.x, t.y)
+                        local item = bg and db[bg]
+                        local name = type(item) == "table" and type(item.name) == "string"
+                            and item.name:lower() or ""
+                        if TileValue(world, "fg", t.x, t.y) == 0
+                            and bg and bg ~= 0 and name:find("cave", 1, true)
+                            and not Protected(db, bg)
+                            and (fails[t.x .. "," .. t.y .. ",bg"] or 0) < 3 then
+                            table.insert(caveGroup, {
+                                x = t.x, y = t.y, id = bg, layer = "bg"
+                            })
+                        end
+                    end
+
+                    if #caveGroup > 0 then
+                        Clear.status = "Pukul Cave di lokasi yang sama"
+                        local caveBefore = DropSet(world)
+                        local caveFailed = BreakGroup(world, hit, caveGroup, token)
+                        for _, t in ipairs(caveFailed) do
+                            Fail(t, 1)
+                            Clear.stats.skipped += 1
+                        end
+                        local caveBroken = #caveGroup - #caveFailed
+                        Clear.stats.broken += caveBroken
+                        Clear.stats.left = math.max(0, Clear.stats.left - caveBroken + #caveFailed)
+                        if Config.clearTake and caveBroken > 0 then
+                            task.wait(0.25)
+                            Clear.status = "Ambil drop Cave"
+                            Clear.stats.picked += TakeDrops(world, caveBefore, token, nil)
+                        end
                     end
                 end
             end
