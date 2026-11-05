@@ -1,3 +1,4 @@
+````
 ```
 --[[
     Peex HUB | GrowBlox  (v9 - Pathfinding, tanpa Key System)
@@ -3013,19 +3014,19 @@ end
 -- GUI
 ----------------------------------------------------------------------
 local C = {
-    window = Color3.fromRGB(255, 236, 179),
-    panel = Color3.fromRGB(255, 249, 226),
-    card = Color3.fromRGB(255, 255, 255),
-    cardHi = Color3.fromRGB(255, 214, 102),
-    stroke = Color3.fromRGB(74, 44, 42),
-    accent = Color3.fromRGB(255, 140, 66),
-    accent2 = Color3.fromRGB(77, 196, 255),
-    text = Color3.fromRGB(74, 44, 42),
-    mute = Color3.fromRGB(153, 110, 84),
-    ok = Color3.fromRGB(94, 214, 92),
-    bad = Color3.fromRGB(255, 96, 96),
+    window = Color3.fromRGB(13, 20, 34),
+    panel = Color3.fromRGB(20, 31, 50),
+    card = Color3.fromRGB(28, 43, 66),
+    cardHi = Color3.fromRGB(42, 61, 88),
+    stroke = Color3.fromRGB(67, 94, 125),
+    accent = Color3.fromRGB(0, 184, 212),
+    accent2 = Color3.fromRGB(103, 232, 249),
+    text = Color3.fromRGB(235, 245, 255),
+    mute = Color3.fromRGB(157, 178, 202),
+    ok = Color3.fromRGB(74, 222, 128),
+    bad = Color3.fromRGB(248, 113, 113),
 }
-local CARTOON_FONT = Enum.Font.FredokaOne
+local CARTOON_FONT = Enum.Font.GothamSemibold
 
 local function New(class, props, parent)
     local obj = Instance.new(class)
@@ -3037,14 +3038,14 @@ local function New(class, props, parent)
 end
 
 local function Corner(obj, radius)
-    return New("UICorner", { CornerRadius = UDim.new(0, math.floor(radius * 1.5)) }, obj)
+    return New("UICorner", { CornerRadius = UDim.new(0, radius or 10) }, obj)
 end
 
 local function Stroke(obj, color, thickness, transparency)
     return New("UIStroke", {
         Color = color,
-        Thickness = math.max(2, (thickness or 1) * 2),
-        Transparency = math.min(transparency or 0, 0.15),
+        Thickness = thickness or 1,
+        Transparency = transparency or 0,
         ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
     }, obj)
 end
@@ -4635,35 +4636,9 @@ local function SwitchTab(id)
     end
 end
 
+-- Drag sengaja dinonaktifkan. Tidak ada listener InputChanged global.
 local function MakeDraggable(handle, frame)
-    local dragging, dragStart, startPos = false, nil, nil
-
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    hub.dragConnections = hub.dragConnections or {}
-    local dragConnection = UserInputService.InputChanged:Connect(function(input)
-        if dragging and frame.Parent and (input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            frame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    table.insert(hub.dragConnections, dragConnection)
+    return false
 end
 
 local function CloseHub()
@@ -4707,16 +4682,18 @@ local function OpenHub(tabId)
         hub.scale = nil
     end
 
-    -- Remove an orphaned window left by a previous execution.
     local guiRoot = GetGui()
-    local orphanedHub = guiRoot:FindFirstChild("Hub")
-    if orphanedHub then orphanedHub:Destroy() end
+    local oldWindow = guiRoot:FindFirstChild("Hub")
+    if oldWindow then
+        oldWindow:Destroy()
+    end
 
-    local viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
-    local width = math.clamp(viewport.X - 20, 300, 580)
-    local height = math.clamp(viewport.Y - 40, 270, 420)
-    local sidebarWidth = (width < 440) and 52 or 128
-    hub.narrow = width < 440
+    local camera = workspace.CurrentCamera
+    local viewport = camera and camera.ViewportSize or Vector2.new(900, 650)
+    local width = math.max(280, math.min(720, viewport.X - 24))
+    local height = math.max(300, math.min(590, viewport.Y - 36))
+    local sidebarWidth = width < 470 and 58 or 142
+    hub.narrow = width < 470
 
     local frame = New("Frame", {
         Name = "Hub",
@@ -4725,110 +4702,139 @@ local function OpenHub(tabId)
         BackgroundColor3 = C.window,
         BorderSizePixel = 0,
         Active = true,
-    }, GetGui())
-    Corner(frame, 14)
+        ClipsDescendants = true,
+    }, guiRoot)
+    Corner(frame, 16)
+    Stroke(frame, C.stroke, 1.5, 0)
 
-    Stroke(frame, C.stroke, 2, 0)
-
-    local scale = New("UIScale", { Scale = 0.92 }, frame)
     hub.frame = frame
-    hub.scale = scale
     hub.pages = {}
     hub.tabs = {}
     hub.refreshers = {}
     hub.built = {}
     hub.dragConnections = {}
-    Tween(scale, 0.18, { Scale = 1 })
+    hub.minimized = false
 
     -- Header
     local header = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 44),
-        BackgroundTransparency = 1,
+        Name = "Header",
+        Size = UDim2.new(1, 0, 0, 58),
+        BackgroundColor3 = C.panel,
+        BorderSizePixel = 0,
     }, frame)
 
-    local title = Label(header, {
-        Text = "PEEX HUB",
-        Font = CARTOON_FONT,
-        TextSize = 19,
-        TextColor3 = Color3.fromRGB(255, 140, 66),
-        TextStrokeColor3 = C.stroke,
-        TextStrokeTransparency = 0,
-        Position = UDim2.fromOffset(16, 0),
-        Size = UDim2.fromOffset(100, 44),
+    local logo = New("Frame", {
+        Position = UDim2.fromOffset(12, 9),
+        Size = UDim2.fromOffset(40, 40),
+        BackgroundColor3 = C.accent,
+        BorderSizePixel = 0,
+    }, header)
+    Corner(logo, 12)
+    Label(logo, {
+        Text = "P",
+        Size = UDim2.fromScale(1, 1),
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 22,
+        Font = Enum.Font.GothamBlack,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        TextYAlignment = Enum.TextYAlignment.Center,
         TextWrapped = false,
     })
 
     Label(header, {
-        Text = "GrowBlox  v7",
+        Text = "PEEX HUB",
+        Position = UDim2.fromOffset(62, 9),
+        Size = UDim2.new(1, -150, 0, 22),
+        TextColor3 = C.text,
+        TextSize = 17,
+        Font = Enum.Font.GothamBold,
+        TextWrapped = false,
+    })
+    Label(header, {
+        Text = "GROWBLOX  •  CONTROL PANEL",
+        Position = UDim2.fromOffset(63, 31),
+        Size = UDim2.new(1, -160, 0, 16),
         TextColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 11,
-        Position = UDim2.fromOffset(112, 3),
-        Size = UDim2.fromOffset(100, 44),
+        TextSize = 9,
+        Font = Enum.Font.GothamMedium,
         TextWrapped = false,
     })
 
-    local close = MakeButton(header, "X", "danger", {
+    local close = MakeButton(header, "×", "danger", {
         AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -12, 0.5, 0),
-        Size = UDim2.fromOffset(28, 28),
-        TextSize = 12,
+        Position = UDim2.new(1, -10, 0.5, 0),
+        Size = UDim2.fromOffset(32, 32),
+        TextSize = 20,
+        Font = Enum.Font.GothamBold,
     })
-    close:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 14)
     close.MouseButton1Click:Connect(CloseHub)
 
-    local minimize = MakeButton(header, "-", "ghost", {
+    local minimize = MakeButton(header, "−", "ghost", {
         AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -46, 0.5, 0),
-        Size = UDim2.fromOffset(28, 28),
-        TextSize = 14,
+        Position = UDim2.new(1, -49, 0.5, 0),
+        Size = UDim2.fromOffset(32, 32),
+        TextSize = 18,
+        Font = Enum.Font.GothamBold,
     })
-    minimize:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 14)
-
-    MakeDraggable(header, frame)
 
     local accentLine = New("Frame", {
-        Position = UDim2.new(0, 12, 0, 43),
-        Size = UDim2.new(1, -24, 0, 2),
-        BackgroundColor3 = C.stroke,
+        Position = UDim2.fromOffset(0, 57),
+        Size = UDim2.new(1, 0, 0, 2),
+        BackgroundColor3 = C.accent,
         BorderSizePixel = 0,
     }, frame)
-    Corner(accentLine, 1)
 
     -- Sidebar
     local sidebar = New("ScrollingFrame", {
-        Position = UDim2.fromOffset(8, 48),
-        Size = UDim2.new(0, sidebarWidth - 8, 1, -56),
-        BackgroundTransparency = 1,
+        Name = "Navigation",
+        Position = UDim2.fromOffset(10, 70),
+        Size = UDim2.new(0, sidebarWidth - 10, 1, -82),
+        BackgroundColor3 = C.panel,
+        BackgroundTransparency = 0,
         BorderSizePixel = 0,
-        ScrollBarThickness = 0,
+        ScrollBarThickness = 2,
+        ScrollBarImageColor3 = C.accent,
         CanvasSize = UDim2.new(),
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
     }, frame)
-    New("UIListLayout", { Padding = UDim.new(0, 4) }, sidebar)
+    Corner(sidebar, 12)
+    New("UIPadding", {
+        PaddingTop = UDim.new(0, 8),
+        PaddingBottom = UDim.new(0, 8),
+        PaddingLeft = UDim.new(0, 5),
+        PaddingRight = UDim.new(0, 5),
+    }, sidebar)
+    New("UIListLayout", {
+        Padding = UDim.new(0, 5),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+    }, sidebar)
 
-    -- Panel isi
+    -- Main content panel
     local panel = New("Frame", {
-        Position = UDim2.fromOffset(sidebarWidth, 48),
-        Size = UDim2.new(1, -(sidebarWidth + 8), 1, -56),
+        Name = "Content",
+        Position = UDim2.fromOffset(sidebarWidth + 8, 70),
+        Size = UDim2.new(1, -(sidebarWidth + 18), 1, -82),
         BackgroundColor3 = C.panel,
         BorderSizePixel = 0,
     }, frame)
-    Corner(panel, 10)
-    Stroke(panel, C.stroke, 1, 0)
+    Corner(panel, 12)
+    Stroke(panel, C.stroke, 1, 0.25)
 
-    hub.minimized = false
     minimize.MouseButton1Click:Connect(function()
         hub.minimized = not hub.minimized
         sidebar.Visible = not hub.minimized
         panel.Visible = not hub.minimized
-        minimize.Text = hub.minimized and "+" or "-"
-        Tween(frame, 0.18, { Size = UDim2.fromOffset(width, hub.minimized and 46 or height) })
+        accentLine.Visible = not hub.minimized
+        minimize.Text = hub.minimized and "+" or "−"
+        Tween(frame, 0.16, {
+            Size = UDim2.fromOffset(width, hub.minimized and 58 or height)
+        })
     end)
 
     for index, tab in ipairs(TAB_ORDER) do
         local button = New("TextButton", {
-            Size = UDim2.new(1, 0, 0, 32),
+            Name = "Tab_" .. tab.id,
+            Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = C.cardHi,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
@@ -4836,32 +4842,32 @@ local function OpenHub(tabId)
             Text = "",
             LayoutOrder = index,
         }, sidebar)
-        Corner(button, 8)
+        Corner(button, 9)
 
-        local bar = New("Frame", {
-            AnchorPoint = Vector2.new(0, 0.5),
-            Position = UDim2.new(0, 0, 0.5, 0),
+        local marker = New("Frame", {
+            Position = UDim2.new(0, 0, 0.5, -9),
             Size = UDim2.fromOffset(3, 18),
             BackgroundColor3 = C.accent2,
             BorderSizePixel = 0,
             Visible = false,
         }, button)
-        Corner(bar, 2)
+        Corner(marker, 2)
 
-        local label = Label(button, {
+        Label(button, {
             Text = hub.narrow and tab.icon or tab.label,
-            Font = CARTOON_FONT,
-            TextSize = hub.narrow and 14 or 12,
+            Position = hub.narrow and UDim2.fromScale(0, 0) or UDim2.fromOffset(11, 0),
+            Size = hub.narrow and UDim2.fromScale(1, 1) or UDim2.new(1, -16, 1, 0),
             TextColor3 = C.mute,
+            TextSize = hub.narrow and 12 or 11,
             TextXAlignment = hub.narrow and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left,
-            Position = hub.narrow and UDim2.fromOffset(0, 0) or UDim2.fromOffset(12, 0),
-            Size = hub.narrow and UDim2.fromScale(1, 1) or UDim2.new(1, -14, 1, 0),
+            TextYAlignment = Enum.TextYAlignment.Center,
+            Font = Enum.Font.GothamSemibold,
             TextWrapped = false,
         })
 
         button.MouseEnter:Connect(function()
             if hub.active ~= tab.id then
-                Tween(button, 0.1, { BackgroundTransparency = 0.6 })
+                Tween(button, 0.1, { BackgroundTransparency = 0.45 })
             end
         end)
         button.MouseLeave:Connect(function()
@@ -4873,14 +4879,15 @@ local function OpenHub(tabId)
             SwitchTab(tab.id)
         end)
 
-        hub.tabs[tab.id] = { button = button, label = label, bar = bar }
+        hub.tabs[tab.id] = { button = button, label = button:FindFirstChildOfClass("TextLabel"), bar = marker }
 
         local page = New("ScrollingFrame", {
+            Name = "Page_" .. tab.id,
             Size = UDim2.fromScale(1, 1),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
-            ScrollBarThickness = 5,
-            ScrollBarImageColor3 = C.stroke,
+            ScrollBarThickness = 4,
+            ScrollBarImageColor3 = C.accent,
             CanvasSize = UDim2.new(),
             AutomaticCanvasSize = Enum.AutomaticSize.Y,
             Visible = false,
@@ -4890,20 +4897,18 @@ local function OpenHub(tabId)
             SortOrder = Enum.SortOrder.LayoutOrder,
         }, page)
         New("UIPadding", {
-            PaddingLeft = UDim.new(0, 10),
-            PaddingRight = UDim.new(0, 10),
-            PaddingTop = UDim.new(0, 10),
-            PaddingBottom = UDim.new(0, 10),
+            PaddingLeft = UDim.new(0, 12),
+            PaddingRight = UDim.new(0, 12),
+            PaddingTop = UDim.new(0, 12),
+            PaddingBottom = UDim.new(0, 12),
         }, page)
         hub.pages[tab.id] = page
-
-        -- Page contents are created lazily by SwitchTab when selected.
     end
 
-    SwitchTab(tabId)
+    SwitchTab(tabId or "features")
 end
 
-local function ToggleHub(tabId)
+local function ToggleHub(tabId)(tabId)
     -- Perintah tab (mis. /hpx, /af, /sgb) selalu membuka/berpindah tab.
     -- Jangan menutup GUI hanya karena tab yang sama dipanggil dua kali.
     if hub.frame and not hub.frame.Parent then
@@ -4914,78 +4919,46 @@ local function ToggleHub(tabId)
     OpenHub(tabId)
 end
 
--- Tombol P melayang (bisa digeser; tap = buka/tutup menu)
+-- Launcher P: tombol klik biasa, tidak memakai listener gerakan mouse.
 local function BuildLauncher()
-    if hub.launcher and hub.launcher.Parent then
-        hub.launcher:Destroy()
+    local guiRoot = GetGui()
+    local oldLauncher = guiRoot:FindFirstChild("Launcher")
+    if oldLauncher then
+        oldLauncher:Destroy()
     end
-    if hub.launcherConnection then
-        pcall(function() hub.launcherConnection:Disconnect() end)
-        hub.launcherConnection = nil
-    end
-    local oldLauncher = GetGui():FindFirstChild("Launcher")
-    if oldLauncher then oldLauncher:Destroy() end
-
-    local holder = New("Frame", {
-        Name = "Launcher",
-        Size = UDim2.fromOffset(44, 44),
-        Position = UDim2.new(0, 12, 0.5, -22),
-        BackgroundColor3 = C.accent,
-        BorderSizePixel = 0,
-        Visible = Config.launcher,
-        ZIndex = 50,
-    }, GetGui())
-    Corner(holder, 22)
-    Stroke(holder, C.stroke, 1.5, 0)
-    hub.launcher = holder
 
     local button = New("TextButton", {
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
+        Name = "Launcher",
+        Size = UDim2.fromOffset(48, 48),
+        Position = UDim2.new(0, 14, 0.5, -24),
+        BackgroundColor3 = C.accent,
+        BorderSizePixel = 0,
+        AutoButtonColor = false,
         Text = "P",
         TextColor3 = Color3.new(1, 1, 1),
-        TextStrokeColor3 = C.stroke,
-        TextStrokeTransparency = 0,
-        Font = CARTOON_FONT,
-        TextSize = 20,
-        ZIndex = 51,
-    }, holder)
+        TextStrokeColor3 = C.window,
+        TextStrokeTransparency = 0.35,
+        Font = Enum.Font.GothamBlack,
+        TextSize = 21,
+        Visible = Config.launcher,
+        ZIndex = 50,
+    }, guiRoot)
+    Corner(button, 15)
+    Stroke(button, C.accent2, 1.5, 0)
+    hub.launcher = button
 
-    local dragging, moved, dragStart, startPos = false, false, nil, nil
-    button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            dragging, moved = true, false
-            dragStart = input.Position
-            startPos = holder.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                    if not moved then
-                        if hub.frame and hub.frame.Parent then
-                            CloseHub()
-                        else
-                            hub.frame = nil
-                            OpenHub("features")
-                        end
-                    end
-                end
-            end)
-        end
+    button.MouseEnter:Connect(function()
+        Tween(button, 0.12, { BackgroundColor3 = Color3.fromRGB(0, 204, 225) })
     end)
-    hub.launcherConnection = UserInputService.InputChanged:Connect(function(input)
-        if dragging and holder.Parent and (input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            if delta.Magnitude > 6 then
-                moved = true
-            end
-            if moved then
-                holder.Position = UDim2.new(
-                    startPos.X.Scale, startPos.X.Offset + delta.X,
-                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
-                )
-            end
+    button.MouseLeave:Connect(function()
+        Tween(button, 0.12, { BackgroundColor3 = C.accent })
+    end)
+    button.Activated:Connect(function()
+        if hub.frame and hub.frame.Parent then
+            CloseHub()
+        else
+            hub.frame = nil
+            OpenHub("features")
         end
     end)
 end
@@ -5290,12 +5263,7 @@ Player.Chatted:Connect(Process)
 
 BuildLauncher()
 
--- Tampilkan menu utama langsung saat script selesai dijalankan.
-task.defer(function()
-    pcall(function()
-        OpenHub("features")
-    end)
-end)
+-- Menu dibuka lewat tombol P atau command; tidak auto-open saat startup.
 
 -- Auto-reload: antrekan skrip untuk server/world berikutnya
 pcall(QueueReload)
@@ -5330,3 +5298,4 @@ else
     Notify("Loaded, tapi inventory game belum ditemukan (cek executor).")
 end
 ```
+````
