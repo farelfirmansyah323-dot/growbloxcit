@@ -2024,20 +2024,16 @@ do
     end
 
     local function BreakUntilClear(world, hit, group, token)
-        local failed = {}
-        for attempt = 1, 3 do
-            if Clear.token ~= token then
-                return group
-            end
-            failed = BreakGroup(world, hit, group, token)
+        -- Jangan pernah tandai target yang masih ada sebagai selesai/terlewati.
+        -- Ulangi pukulan di grup yang sama sampai semua tile benar-benar hilang.
+        while Clear.token == token do
+            local failed = BreakGroup(world, hit, group, token)
             if #failed == 0 then
                 return {}
             end
-            if attempt < 3 then
-                task.wait(0.25)
-            end
+            task.wait(0.25)
         end
-        return failed
+        return group
     end
 
     local function TakeDrops(world, before, token, home)
@@ -2090,8 +2086,9 @@ do
             local key = t.x .. "," .. t.y .. "," .. t.layer
             fails[key] = (fails[key] or 0) + (n or 1)
         end
-        local lastLeft = nil
-        for pass = 1, 10 do
+        local pass = 0
+        while Clear.token == token do
+            pass += 1
             if Clear.token ~= token then
                 return
             end
@@ -2130,27 +2127,21 @@ do
             end
             reach = math.min(reach, 6)
 
-            if lastLeft and #targets >= lastLeft and pass > 3 then
-                -- tidak ada kemajuan, tandai sisa agar tidak berputar terus
-                for _, t in ipairs(targets) do
-                    Fail(t, 1)
-                end
-            end
-            lastLeft = #targets
-
             local groups = MakeGroups(targets, math.max(1, math.floor(reach / 2)))
             for index, group in ipairs(groups) do
                 if Clear.token ~= token then
                     return
                 end
                 local spot = StandingSpot(world, group, reach)
-                if not spot then
-                    -- belum ada tempat berdiri; dicoba lagi di pass berikutnya
-                    for _, t in ipairs(group) do
-                        Fail(t, 1)
-                        Clear.stats.skipped += 1
-                    end
-                else
+                while not spot and Clear.token == token do
+                    Clear.status = string.format("Menunggu posisi untuk target (%d,%d)", group[1].x, group[1].y)
+                    task.wait(0.5)
+                    spot = StandingSpot(world, group, reach)
+                end
+                if Clear.token ~= token then
+                    return
+                end
+                if spot then
                     Clear.status = string.format("Break grup %d/%d (pass %d)", index, #groups, pass)
                     local px, py = GetTile()
                     local reachable = true
@@ -2176,25 +2167,21 @@ do
                         task.wait(math.max(0.05, Config.clearTpDelay))
                         reachable = InReach()
                     end
-                    if not reachable then
-                        for _, t in ipairs(group) do
-                            Fail(t, 1)
+                    while not reachable and Clear.token == token do
+                        Clear.status = string.format("Mencari posisi untuk target (%d,%d)", group[1].x, group[1].y)
+                        task.wait(0.5)
+                        local retrySpot = StandingSpot(world, group, reach)
+                        if retrySpot then
+                            pcall(world.goTo, retrySpot.x, retrySpot.y)
+                            task.wait(math.max(0.05, Config.clearTpDelay))
+                            reachable = InReach()
                         end
-                        Clear.stats.skipped += #group
-                        Clear.status = "Posisi tidak tercapai, dicoba lagi di pass berikutnya"
-                        continue
+                    end
+                    if Clear.token ~= token then
+                        return
                     end
                     local before = DropSet(world)
                     local failed = BreakUntilClear(world, hit, group, token)
-                    if #failed > 0 then
-                        Clear.status = string.format("Masih ada tile di (%d,%d); berhenti di lokasi", failed[1].x, failed[1].y)
-                        Notify(string.format("Auto Clear: tile di (%d,%d) masih ada setelah dicoba ulang. Tidak teleport agar tidak terlewat.", failed[1].x, failed[1].y))
-                        return
-                    end
-                    for _, t in ipairs(failed) do
-                        Fail(t, 1)
-                        Clear.stats.skipped += 1
-                    end
                     local dirtBroken = #group - #failed
                     Clear.stats.broken += dirtBroken
                     Clear.stats.left = math.max(0, Clear.stats.left - dirtBroken + #failed)
@@ -2229,15 +2216,6 @@ do
                         Clear.status = "Pukul Cave di lokasi yang sama"
                         local caveBefore = DropSet(world)
                         local caveFailed = BreakUntilClear(world, hit, caveGroup, token)
-                        if #caveFailed > 0 then
-                            Clear.status = string.format("Cave masih ada di (%d,%d); berhenti di lokasi", caveFailed[1].x, caveFailed[1].y)
-                            Notify(string.format("Auto Clear: Cave di (%d,%d) masih ada setelah dicoba ulang. Tidak teleport agar tidak terlewat.", caveFailed[1].x, caveFailed[1].y))
-                            return
-                        end
-                        for _, t in ipairs(caveFailed) do
-                            Fail(t, 1)
-                            Clear.stats.skipped += 1
-                        end
                         local caveBroken = #caveGroup - #caveFailed
                         Clear.stats.broken += caveBroken
                         Clear.stats.left = math.max(0, Clear.stats.left - caveBroken + #caveFailed)
