@@ -42,20 +42,41 @@
     "PeexHub_GrowBlox.lua" (atau isi URL di tab Sesi) supaya auto-reload jalan.
 ]]
 
--- Cegah dobel-eksekusi
+-- Cegah dobel-eksekusi hanya jika GUI lama benar-benar masih ada.
+-- Jika eksekusi sebelumnya gagal sebelum membuat GUI, izinkan script dicoba lagi.
 local genv = (getgenv and getgenv()) or _G
 if genv.PeexHubGB_Loaded then
-    -- Diam kalau cuma eksekusi ganda otomatis (autoexec + auto-reload)
-    if type(genv.PeexHubGB_Loaded) ~= "number" or os.clock() - genv.PeexHubGB_Loaded > 15 then
+    local existingGui = false
+    pcall(function()
+        local players = game:GetService("Players")
+        local player = players.LocalPlayer
+        local playerGui = player and player:FindFirstChildOfClass("PlayerGui")
+        if playerGui and (playerGui:FindFirstChild("PeexHubGB") or playerGui:FindFirstChild("PeexHubGB_Fallback")) then
+            existingGui = true
+        end
+        local coreGui = game:GetService("CoreGui")
+        if coreGui:FindFirstChild("PeexHubGB") then
+            existingGui = true
+        end
+        if type(gethui) == "function" then
+            local hui = gethui()
+            if hui and hui:FindFirstChild("PeexHubGB") then
+                existingGui = true
+            end
+        end
+    end)
+    if existingGui then
         pcall(function()
             game:GetService("StarterGui"):SetCore("SendNotification", {
                 Title = "Peex HUB | GrowBlox",
-                Text = "Sudah aktif. Ketik /hpx atau tekan tombol P.",
+                Text = "GUI sudah aktif. Tekan tombol P atau ketik /hpx.",
                 Duration = 4,
             })
         end)
+        return
     end
-    return
+    -- Flag lama tertinggal tetapi GUI tidak ada: hapus dan lanjutkan.
+    genv.PeexHubGB_Loaded = nil
 end
 genv.PeexHubGB_Loaded = os.clock()
 
