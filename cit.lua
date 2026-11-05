@@ -1843,6 +1843,10 @@ do
     end
 
     local function Protected(db, id)
+        -- Rock memakai ID 10 dan harus tetap bisa dipukul.
+        if tonumber(id) == 10 then
+            return false
+        end
         local item = db and db[id]
         if type(item) ~= "table" then
             return true
@@ -1880,9 +1884,7 @@ do
                         -- Jangan pernah mencoba cave/background di balik bedrock.
                         skipCoordinate = true
                     elseif not Protected(db, f) then
-                        if (fails[x .. "," .. y .. ",fg"] or 0) < 3 then
-                            table.insert(list, { x = x, y = y, id = f, layer = "fg" })
-                        end
+                        table.insert(list, { x = x, y = y, id = f, layer = "fg" })
                         -- Selama foreground masih ada, background menunggu.
                         skipCoordinate = true
                     else
@@ -1894,8 +1896,7 @@ do
 
                 if not skipCoordinate then
                     local b = TileValue(world, "bg", x, y)
-                    if b and b ~= 0 and not Protected(db, b)
-                        and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
+                    if b and b ~= 0 and not Protected(db, b) then
                         table.insert(list, { x = x, y = y, id = b, layer = "bg" })
                     end
                 end
@@ -1911,6 +1912,8 @@ do
                 return 1
             elseif name:find("cave", 1, true) then
                 return 2
+            elseif tonumber(tile.id) == 10 or name:find("rock", 1, true) then
+                return 3
             end
             return 3
         end
@@ -2006,6 +2009,23 @@ do
                 break
             end
             task.wait(math.max(0.03, Config.clearBreakDelay))
+        end
+        return failed
+    end
+
+    local function BreakUntilClear(world, hit, group, token)
+        local failed = {}
+        for attempt = 1, 3 do
+            if Clear.token ~= token then
+                return group
+            end
+            failed = BreakGroup(world, hit, group, token)
+            if #failed == 0 then
+                return {}
+            end
+            if attempt < 3 then
+                task.wait(0.25)
+            end
         end
         return failed
     end
@@ -2155,7 +2175,12 @@ do
                         continue
                     end
                     local before = DropSet(world)
-                    local failed = BreakGroup(world, hit, group, token)
+                    local failed = BreakUntilClear(world, hit, group, token)
+                    if #failed > 0 then
+                        Clear.status = string.format("Masih ada tile di (%d,%d); berhenti di lokasi", failed[1].x, failed[1].y)
+                        Notify(string.format("Auto Clear: tile di (%d,%d) masih ada setelah dicoba ulang. Tidak teleport agar tidak terlewat.", failed[1].x, failed[1].y))
+                        return
+                    end
                     for _, t in ipairs(failed) do
                         Fail(t, 1)
                         Clear.stats.skipped += 1
@@ -2193,7 +2218,12 @@ do
                     if #caveGroup > 0 then
                         Clear.status = "Pukul Cave di lokasi yang sama"
                         local caveBefore = DropSet(world)
-                        local caveFailed = BreakGroup(world, hit, caveGroup, token)
+                        local caveFailed = BreakUntilClear(world, hit, caveGroup, token)
+                        if #caveFailed > 0 then
+                            Clear.status = string.format("Cave masih ada di (%d,%d); berhenti di lokasi", caveFailed[1].x, caveFailed[1].y)
+                            Notify(string.format("Auto Clear: Cave di (%d,%d) masih ada setelah dicoba ulang. Tidak teleport agar tidak terlewat.", caveFailed[1].x, caveFailed[1].y))
+                            return
+                        end
                         for _, t in ipairs(caveFailed) do
                             Fail(t, 1)
                             Clear.stats.skipped += 1
