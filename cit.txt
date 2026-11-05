@@ -1,4 +1,3 @@
-
 --[[
     Peex HUB | GrowBlox  (v9 - Pathfinding, tanpa Key System)
     Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
