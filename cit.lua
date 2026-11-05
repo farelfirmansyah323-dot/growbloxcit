@@ -38,17 +38,15 @@
 
 -- Cegah dobel-eksekusi
 local genv = (getgenv and getgenv()) or _G
-if genv.PeexHubGB_Loaded then
-    -- Diam kalau cuma eksekusi ganda otomatis (autoexec + auto-reload)
-    if type(genv.PeexHubGB_Loaded) ~= "number" or os.clock() - genv.PeexHubGB_Loaded > 15 then
-        pcall(function()
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "Peex HUB | GrowBlox",
-                Text = "Sudah aktif. Ketik /hpx atau tekan tombol P.",
-                Duration = 4,
-            })
-        end)
-    end
+if genv.PeexHubGB_Loaded and type(genv.PeexHubGB_Loaded) == "number"
+    and (os.clock() - genv.PeexHubGB_Loaded) < 3 then
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Peex HUB | GrowBlox",
+            Text = "Script baru saja dijalankan. Tunggu sebentar lalu coba lagi.",
+            Duration = 3,
+        })
+    end)
     return
 end
 genv.PeexHubGB_Loaded = os.clock()
@@ -65,9 +63,10 @@ local TeleportService = game:GetService("TeleportService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
-local DropEvent = ReplicatedStorage
-    :WaitForChild("WorldRemotes")
-    :WaitForChild("DropItem")
+-- Jangan menahan seluruh script jika remote game belum tersedia.
+-- Remote dicari tanpa yield; GUI tetap dapat dimuat.
+local worldRemotes = ReplicatedStorage:FindFirstChild("WorldRemotes")
+local DropEvent = worldRemotes and worldRemotes:FindFirstChild("DropItem")
 
 ----------------------------------------------------------------------
 -- CONFIG (disimpan ke file kalau executor mendukung writefile)
@@ -337,6 +336,11 @@ local function DropWorldLock(amount)
     busy = true
 
     local success, err = pcall(function()
+        if not DropEvent then
+            local remotes = ReplicatedStorage:FindFirstChild("WorldRemotes")
+            DropEvent = remotes and remotes:FindFirstChild("DropItem")
+        end
+        assert(DropEvent, "Remote WorldRemotes.DropItem belum ditemukan")
         DropEvent:FireServer(Config.dropId, amount, dropX, dropY)
     end)
 
@@ -4906,7 +4910,7 @@ local function OpenHub(tabId)
     SwitchTab(tabId or "features")
 end
 
-local function ToggleHub(tabId)(tabId)
+local function ToggleHub(tabId)
     -- Perintah tab (mis. /hpx, /af, /sgb) selalu membuka/berpindah tab.
     -- Jangan menutup GUI hanya karena tab yang sama dipanggil dua kali.
     if hub.frame and not hub.frame.Parent then
