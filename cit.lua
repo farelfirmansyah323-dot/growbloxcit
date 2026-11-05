@@ -1822,7 +1822,7 @@ end
 ----------------------------------------------------------------------
 -- AUTO CLEAR WORLD
 -- 1) GrowScan dulu (hitung isi world) -> 2) kumpulkan semua tile yang boleh
--- dipecah (lock, area & bedrock DILEWATI) -> 3) teleport ke dekat grup 4 tile
+-- dipecah (lock, area & bedrock DILEWATI; bg di balik bedrock ikut dilewati) -> 3) teleport ke dekat grup 4 tile
 -- -> 4) pukul 4 tile SEKALIGUS dalam satu putaran -> 5) ambil item drop.
 -- Delay teleport & delay break bisa diatur di tab Clear.
 ----------------------------------------------------------------------
@@ -1832,6 +1832,15 @@ do
     end
 
     -- Tile yang TIDAK boleh dipecah: lock, area, bedrock, hits <= 0, door utama
+    local function IsBedrock(db, id)
+        local item = db and db[id]
+        if type(item) ~= "table" then
+            return false
+        end
+        local name = type(item.name) == "string" and item.name:lower() or ""
+        return name:find("bedrock", 1, true) ~= nil
+    end
+
     local function Protected(db, id)
         local item = db and db[id]
         if type(item) ~= "table" then
@@ -1855,27 +1864,34 @@ do
         return TileValue(world, t.layer, t.x, t.y) == t.id
     end
 
-    -- Kumpulkan tile target: foreground diprioritaskan.
-    -- Background/cave background ikut dipilih jika foreground kosong ATAU
-    -- foreground di koordinat itu dilindungi (lock/bedrock), agar bg tidak terlewat.
-    -- Jika foreground masih bisa dihancurkan, background ditangani pada scan berikutnya.
+    -- Foreground diproses lebih dulu. Background/cave hanya boleh diproses
+    -- setelah foreground kosong. Jika foreground adalah bedrock, seluruh
+    -- koordinat dikunci: background ID 14 atau background lain tidak disentuh.
     local function Collect(world, db, fails)
         local list = {}
         for y = 0, world.h - 1 do
             for x = 0, world.w - 1 do
                 local f = TileValue(world, "fg", x, y)
-                local fgBlocksBackground = false
+                local skipCoordinate = false
 
                 if f and f ~= 0 then
-                    if not Protected(db, f) then
+                    if IsBedrock(db, f) then
+                        -- Jangan pernah mencoba cave/background di balik bedrock.
+                        skipCoordinate = true
+                    elseif not Protected(db, f) then
                         if (fails[x .. "," .. y .. ",fg"] or 0) < 3 then
                             table.insert(list, { x = x, y = y, id = f, layer = "fg" })
                         end
-                        fgBlocksBackground = true
+                        -- Selama foreground masih ada, background menunggu.
+                        skipCoordinate = true
+                    else
+                        -- Lock/area/door tetap dilindungi; background boleh
+                        -- diproses seperti perilaku sebelumnya.
+                        skipCoordinate = false
                     end
                 end
 
-                if not fgBlocksBackground then
+                if not skipCoordinate then
                     local b = TileValue(world, "bg", x, y)
                     if b and b ~= 0 and not Protected(db, b)
                         and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
