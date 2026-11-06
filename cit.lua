@@ -1362,7 +1362,7 @@ local function FarmLoop(token)
                 if PlaceCell(id, cell, farmAnchor.facing) then
                     farmStats.placed += 1
                 end
-                task.wait(0.1)
+                task.wait(0.5)
             end
         end
         if farmToken ~= token then
@@ -1390,7 +1390,7 @@ local function FarmLoop(token)
         -- 3) collect item
         if Config.farmTake then
             farmStats.status = "Ambil item"
-            task.wait(0.3) -- drop muncul sedikit setelah tile pecah
+            task.wait(0.4) -- drop muncul sedikit setelah tile pecah
             farmStats.picked += CollectDrops(world, farmAnchor, before, token)
         end
         if farmToken ~= token then
