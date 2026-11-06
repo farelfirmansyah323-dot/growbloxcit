@@ -1,7 +1,8 @@
 --[[
-    Peex HUB | GrowBlox  (v9.2 - Auto DF, Pathfinding, tanpa Key System)  +  GUI Redesign
+    Peex HUB | GrowBlox  (v9.3 - Auto DF, Pathfinding, tanpa Key System)  +  GUI Redesign
     Perbaikan v9.1: GUI dipasang lewat gethui()/CoreGui (fallback PlayerGui),
     ScanGc dibatasi (anti-lag mobile), pengaman bangun-ulang GUI.
+    v9.3: tab GUI Hidden Name + command /hn, perbaikan Features.hiddenname.
     Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
 
       wld|wd <jumlah>        Drop World Lock
@@ -27,6 +28,7 @@
       move|mv <walk|fly|mix> Mode gerak: jalan / terbang / campur
       spam [on|off]          Kirim teks spam ke chat berulang
       setspam <teks>         Atur teks spam
+      hiddenname|hn <off|self|all>  Sembunyikan nama (lokal saja), GUI: tab Hidden Name
       aq|autoquest [on|off|scan]  Auto quest (claim + kerjakan quest break/place)
       gs|growscan            Buka GrowScan
       god [on|off]           God mode (kebal lava, spike, api)
@@ -136,6 +138,8 @@ local Config = {
     clearTake = true,       -- ambil item drop otomatis
     walkBatch = 3,          -- (lama, diganti clearPunch)
     clearPunch = 3,         -- Auto Clear & Dirt Farm: jumlah block yang dipukul SEKALIGUS (1-3)
+      -- Hidden Name (tampilan lokal)
+    hiddenNameMode = "off", -- "off" | "self" | "all"
     -- Spam Chat
     spamText = "",         -- teks yang dikirim berulang (isi lewat /setspam atau tab Spam)
     spamDelay = 3,          -- jeda antar pesan (detik, minimal 1.5)
@@ -1227,17 +1231,6 @@ local function BreakCell(world, id, cell, token)
         task.wait(math.max(0.03, Config.farmDelay))
     end
     return TileValue(world, layer, cell.x, cell.y) ~= id
-end
-
-local function DropSet(world)
-    local set = {}
-    local ok, list = pcall(world.dropList)
-    if ok and type(list) == "table" then
-        for _, drop in ipairs(list) do
-            set[drop] = true
-        end
-    end
-    return set
 end
 
 local function DropSet(world)
@@ -3053,6 +3046,97 @@ end
 end
 
 ----------------------------------------------------------------------
+--  NAME (tampilan lokal saja)
+-- Nama ditampilkan lewat modul ReplicatedStorage.Shared.Roles (dipakai game
+-- untuk NameTag di atas kepala & nama di chat). Modul ini di-override di sisi
+-- kita saja: tidak mengubah apa pun di server, jadi pemain lain TETAP melihat
+-- nama asli di layar mereka. Reset otomatis saat prefix diubah/respawn tidak
+-- berpengaruh karena hook ini permanen selama script jalan.
+----------------------------------------------------------------------
+local HiddenName = { ready = false }
+do
+    local okRoles, Roles = pcall(function()
+        return require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Roles", 5))
+    end)
+    if okRoles and type(Roles) == "table" and type(Roles.nameOf) == "function" then
+        local originalNameOf = Roles.nameOf
+        local function ShouldHide(player)
+            if Config.hiddenNameMode == "all" then
+                return true
+            end
+            if Config.hiddenNameMode == "self" then
+                return player == Player
+            end
+            return false
+        end
+        Roles.nameOf = function(player, ...)
+            if ShouldHide(player) then
+                return "[HIDDEN]"
+            end
+            return originalNameOf(player, ...)
+        end
+        HiddenName.ready = true
+    end
+
+    -- Game hanya menggambar ulang NameTag saat atribut pemain berubah, jadi setelah
+    -- mode diganti kita paksa gambar ulang: (1) panggil fungsi drawTagName milik game
+    -- kalau ketemu, (2) pancing event atribut "Nick" (hanya lokal, tidak ke server).
+    function HiddenName.Redraw()
+        task.spawn(function()
+            local called = false
+            if getgcFn and debug and debug.info then
+                pcall(function()
+                    for _, fn in ipairs(getgcFn()) do
+                        if type(fn) == "function" then
+                            local okName, fnName = pcall(debug.info, fn, "n")
+                            if okName and fnName == "drawTagName" then
+                                if pcall(fn) then
+                                    called = true
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+            for _, plr in ipairs(Players:GetPlayers()) do
+                pcall(function()
+                    local cur = plr:GetAttribute("Nick")
+                    plr:SetAttribute("Nick", "\u{200B}" .. tostring(cur or ""))
+                    task.wait()
+                    plr:SetAttribute("Nick", cur)
+                end)
+            end
+        end)
+    end
+
+    function HiddenName.SetMode(mode)
+        if mode ~= "off" and mode ~= "self" and mode ~= "all" then
+            return false
+        end
+        if not HiddenName.ready and mode ~= "off" then
+            Notify("Hidden Name tidak tersedia (modul nama game tidak ditemukan).")
+            return false
+        end
+        Config.hiddenNameMode = mode
+        SaveConfig()
+        HiddenName.Redraw()
+        local labels = { off = "mati", self = "nama sendiri", all = "semua pemain" }
+        Notify("Hidden Name: " .. labels[mode])
+        if RefreshHub then
+            RefreshHub()
+        end
+        return true
+    end
+
+    task.defer(function()
+        task.wait(2)
+        if HiddenName.ready and Config.hiddenNameMode ~= "off" then
+            HiddenName.Redraw()
+        end
+    end)
+end
+
+----------------------------------------------------------------------
 -- SPAM CHAT
 -- Game memakai TextChatService bawaan Roblox (tidak ada remote chat sendiri),
 -- jadi pesan dikirim lewat channel RBXGeneral:SendAsync. Kalau chat lama
@@ -3977,6 +4061,9 @@ hub.builders.features = function(page)
         Features.clicktp.get, function(on) SetFeature("clicktp", on) end)
     AddSwitchCard(page, "Auto Quest", "Claim dan kerjakan quest otomatis (lihat tab Quest).",
         Features.autoquest.get, function(on) SetFeature("autoquest", on) end)
+    AddSwitchCard(page, "Hidden Name", "Sembunyikan nama jadi [HIDDEN] (tampilan lokal). Pilih mode lengkap di tab Hidden Name.",
+        function() return Config.hiddenNameMode ~= "off" end,
+        function(on) HiddenName.SetMode(on and "self" or "off") end)
 
     AddSection(page, "Aksi cepat")
 
@@ -4476,6 +4563,7 @@ local function HelpEntries()
         { p .. "spam  [on/off]", "Kirim teks spam ke chat berulang (teks diatur lewat setspam / tab Spam)" },
         { p .. "setspam  <teks>", "Atur teks spam, contoh: " .. p .. "setspam Halo semua!" },
         { p .. "df  |  " .. p .. "autodf  [on/off]", "Auto DF: dig ke bawah, break block di bawah karakter sampai mentok" },
+        { p .. "hiddenname  |  " .. p .. "hn  <off/self/all>", "Sembunyikan nama jadi [HIDDEN] (lokal saja). Tanpa argumen = buka tab Hidden Name" },
         { p .. "aq  |  " .. p .. "autoquest  [on/off/scan]", "Auto quest; scan = lihat hasil baca quest" },
         { p .. "gs  |  " .. p .. "growscan", "Buka GrowScan" },
         { p .. "god  [on/off]", "God mode: kebal lava, spike, api" },
@@ -5169,6 +5257,57 @@ hub.builders.dig = function(page)
         .. "area, atau dasar world, atau kalau kamu pindah world. Command: /df on|off.")
 end
 
+-- Halaman: Hidden Name -----------------------------------------------
+hub.builders.hidden = function(page)
+    local status = AddCard(page, 40)
+    local statusLabel = Label(status, {
+        Position = UDim2.fromOffset(12, 0),
+        Size = UDim2.new(1, -24, 1, 0),
+        Text = "...",
+        TextSize = 12,
+        TextWrapped = false,
+    })
+
+    local MODE_NAMES = { off = "Mati", self = "Nama sendiri", all = "Semua pemain" }
+    local buttons = {}
+
+    local function Refresh()
+        statusLabel.Text = "Mode aktif: " .. (MODE_NAMES[Config.hiddenNameMode] or "Mati")
+            .. (HiddenName.ready and "" or "   (modul tidak tersedia)")
+        statusLabel.TextColor3 = (Config.hiddenNameMode ~= "off") and C.ok or C.mute
+        for mode, button in pairs(buttons) do
+            local active = (Config.hiddenNameMode == mode)
+            button.Text = (active and "✓ " or "") .. MODE_NAMES[mode] .. (active and " (aktif)" or "")
+        end
+    end
+    table.insert(hub.refreshers, Refresh)
+
+    AddSection(page, "Mode")
+    if not HiddenName.ready then
+        AddNote(page, "Modul nama game (ReplicatedStorage.Shared.Roles) tidak ditemukan, jadi Hidden Name tidak bisa dipakai.")
+    end
+
+    buttons.off = AddButton(page, "Mati", "ghost", function()
+        HiddenName.SetMode("off")
+    end)
+    buttons.self = AddButton(page, "Nama sendiri", "primary", function()
+        HiddenName.SetMode("self")
+    end)
+    buttons.all = AddButton(page, "Semua pemain", "primary", function()
+        HiddenName.SetMode("all")
+    end)
+
+    AddButton(page, "Gambar ulang nama sekarang", "ghost", function()
+        HiddenName.Redraw()
+        Notify("Nama digambar ulang.")
+    end)
+
+    AddNote(page, "Nama diganti jadi [HIDDEN] hanya di layarmu. Pemain lain tetap melihat nama aslimu. "
+        .. "Command: " .. Config.prefix .. "hn off | self | all.")
+
+    Refresh()
+end
+
 -- Jendela utama ------------------------------------------------------
 local TAB_ORDER = {
     { id = "features", label = "Fitur", icon = "Ft" },
@@ -5177,6 +5316,7 @@ local TAB_ORDER = {
     { id = "dig", label = "Auto DF", icon = "DF" },
     { id = "spam", label = "Spam Chat", icon = "Sp" },
     { id = "nav", label = "Click TP", icon = "TP" },
+    { id = "hidden", label = "Hidden Name", icon = "Hn" },
     { id = "quest", label = "Auto Quest", icon = "Qs" },
     { id = "scan", label = "GrowScan", icon = "Sc" },
     { id = "pos", label = "Posisi", icon = "Ps" },
@@ -5874,6 +6014,14 @@ local function HandleMessage(text)
 
     elseif command == "blockid" or command == "bid" then
         ShowItemIds(args)
+        return true
+
+    elseif command == "hiddenname" or command == "hn" then
+        if args == "off" or args == "self" or args == "all" then
+            HiddenName.SetMode(args)
+        else
+            ToggleHub("hidden")
+        end
         return true
 
     elseif command == "hpx" then
