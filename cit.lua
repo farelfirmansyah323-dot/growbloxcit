@@ -1240,7 +1240,48 @@ local function DropSet(world)
     return set
 end
 
+local function DropSet(world)
+    local set = {}
+    local ok, list = pcall(world.dropList)
+    if ok and type(list) == "table" then
+        for _, drop in ipairs(list) do
+            set[drop] = true
+        end
+    end
+    return set
+end
+
+-- Kembali ke posisi awal farm & pastikan benar-benar sampai sebelum place lagi
+local function ReturnToAnchor(anchor, token)
+    local function Cancelled()
+        return farmToken ~= token
+    end
+    for attempt = 1, 5 do
+        if Cancelled() then
+            return false
+        end
+        local tx, ty = GetTile()
+        if tx == anchor.x and ty == anchor.y then
+            return true
+        end
+        if attempt <= 2 then
+            Nav.Go(anchor.x, anchor.y, Cancelled)      -- sesuai mode gerak
+        elseif attempt <= 4 then
+            Nav.Fly(anchor.x, anchor.y, Cancelled)     -- buntu: terbang lurus
+        else
+            local world = FindWorld()
+            if world then
+                pcall(world.goTo, anchor.x, anchor.y)  -- terakhir: goTo langsung
+            end
+        end
+        task.wait(0.2)
+    end
+    local tx, ty = GetTile()
+    return tx == anchor.x and ty == anchor.y
+end
+
 -- Ambil hanya drop yang muncul selama siklus ini (bukan drop lama / punya orang lain)
+-- Kembali ke posisi awal ditangani ReturnToAnchor di FarmLoop.
 local function CollectDrops(world, anchor, before, token)
     local ok, list = pcall(world.dropList)
     if not ok or type(list) ~= "table" then
@@ -1268,7 +1309,6 @@ local function CollectDrops(world, anchor, before, token)
             end
         end
     end
-    Nav.To(anchor.x, anchor.y, function() return farmToken ~= token end)
     return picked
 end
 
@@ -1294,12 +1334,17 @@ local function FarmLoop(token)
             break
         end
 
-        -- pastikan di posisi awal
-        local tx, ty = GetTile()
-        if tx ~= farmAnchor.x or ty ~= farmAnchor.y then
-            Nav.To(farmAnchor.x, farmAnchor.y, function() return farmToken ~= token end)
-            task.wait(0.15)
+        -- pastikan di posisi awal sebelum place
+        farmStats.status = "Ke posisi awal"
+        if not ReturnToAnchor(farmAnchor, token) then
+            if farmToken ~= token then
+                break
+            end
+            farmStats.status = "Gagal kembali ke posisi awal"
+            Notify("Auto Farm berhenti: tidak bisa kembali ke posisi awal.")
+            break
         end
+        task.wait(0.15)
 
         -- 1) place
         farmStats.status = "Place " .. ItemName(id)
@@ -1342,12 +1387,27 @@ local function FarmLoop(token)
             break
         end
 
-        -- 3) ambil item
+        -- 3) collect item
         if Config.farmTake then
             farmStats.status = "Ambil item"
             task.wait(0.3) -- drop muncul sedikit setelah tile pecah
             farmStats.picked += CollectDrops(world, farmAnchor, before, token)
         end
+        if farmToken ~= token then
+            break
+        end
+
+        -- 4) kembali ke posisi awal (dipastikan), baru siklus place berikutnya
+        farmStats.status = "Kembali ke posisi awal"
+        if not ReturnToAnchor(farmAnchor, token) then
+            if farmToken ~= token then
+                break
+            end
+            farmStats.status = "Gagal kembali ke posisi awal"
+            Notify("Auto Farm berhenti: tidak bisa kembali ke posisi awal.")
+            break
+        end
+        task.wait(0.15)
 
         farmStats.cycles += 1
 
