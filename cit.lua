@@ -1,7954 +1,8563 @@
+-- Unpacked by ZeroVector: the script inside the packed file, as it was written
 --[[
-    Peex HUB | GrowBlox  (v12 - Punch Auto Clear 1-3, Spam fix, Auto Dirt Farm)  +  GUI PeexHub
-    Prefix default "/" (bisa diganti / dikosongkan di /settingsgb)
+    Fian792  v1.2  (untuk Growblox versi ByteNet, game v1084)
+    Script tester Growtopia (Roblox) dengan UI WindUI.
 
-      wld|wd <jumlah>        Drop World Lock
-      tp|warp <world>        Pindah world
-      pos1 | pos2            Simpan posisi sekarang
-      win1|w1 [jumlah]       Teleport ke Pos 1 (opsional langsung drop WL)
-      win2|w2 [jumlah]       Teleport ke Pos 2
-      pos                    Lihat posisi sekarang & pos tersimpan
-      rejoin|rj              Masuk ulang ke world ini
-      noclip [on|off]        Tembus blok + terbang (mode ghost game)
-      unlimitedjump|uj       Lompat di udara tanpa batas
-      blink [on|off]         Warna skin berganti otomatis
-      longhand|lh [n|off]    Jangkauan punch/build lebih jauh
-      visualitem|vi          GUI item visual (lokal)
-      settingsgb|sgb         GUI pengaturan
-      afk                    Anti-AFK (tidak kena kick idle)
-      autorejoin|arj         Rejoin otomatis kalau terputus
-      session|sesi           GUI sesi (simpan & pulihkan otomatis)
-      af|autofarm [on|off]   GUI Auto Farm (kecepatan pukulan, ID block, grid 5x5)
-      ac|autoclear [on|off]  Auto Clear World (GrowScan dulu, mode jalan / teleport, ambil drop)
-      acmode <walk|tp>       Mode Auto Clear: jalan (turun 1x, sapu baris sampai ujung, ulangi) / teleport
-      acpunch <1-3>          Jumlah block yang dipukul sekaligus oleh Auto Clear (1 sampai 3)
-      df|dirtfarm [on|off]   Auto Dirt Farm (dig turun 2x, sapu baris, respawn, place dirt naik)
-      dirtid <id|nama>       Atur block dirt untuk Auto Dirt Farm (default: otomatis cari \"Dirt\")
-      ctp|clicktp [on|off]   Click TP: klik mana saja, jalan lewat path (tampil seperti teleport)
-      move|mv <walk|tp|fly|mix> Mode gerak: jalan asli / teleport 3-5 block / terbang / campur
-      spam [on|off]          Kirim teks spam ke chat berulang
-      setspam <teks>         Atur teks spam
-      hiddenname|hn <off|self|all>  Sembunyikan nama (lokal saja)
-      breakid <id,id,...>    Scan & pecahkan block ID tertentu
-      aq|autoquest [on|off|scan]  Auto quest (claim + kerjakan quest break/place)
-      gs|growscan            Buka GrowScan
-      god [on|off]           God mode (kebal lava, spike, api)
-      blockid|bid <nama>     Cari ID block dari nama
-      hpx                    Daftar fitur
+    Fitur:
+      - Auto Farm   : place block di tile pilihan (Grid 5x5), lalu break (multi target / Rayman)
+      - Clear World : bersihkan world dari baris atas ke bawah, jalan pakai A*
+      - Farmer      : panen pohon yang sudah siap + tanam seed otomatis
+      - Auto Chat   : kirim beberapa pesan bergantian
+      - Misc        : walkspeed, infinite jump, fly
+      - Staff       : buka backpack staff & pilih title (dikunci server)
+      - Penjaga     : deteksi Mod / Dev / pemain masuk world -> diam / keluar world,
+                      lalu masuk lagi & lanjut aktivitas setelah aman
+      - Bonus       : auto claim quest & auto redeem code
+      - Growscan    : daftar Floating Items, World Blocks & pohon siap panen
+      - Splice      : tanam Seed A lalu splice Seed B, keliling world pakai A* (atau tile Grid)
+      - Lahan       : bangun farm world (baris block + tangga zig-zag), hitung & produksi block dulu
+      - Pabrik      : break -> tanam -> panen -> break, seed lebihan di-drop (bisa ke world lain)
+      - Statistik   : gems / block / drop per jam selama sesi
+      - Tas         : auto recycle item sampah & auto convert lock
+      - Discord     : notifikasi ke webhook (Penjaga, berhenti, penuh, bonus, laporan)
+      - Reconnect   : masuk lagi kalau terlempar / disconnect / di luar world, rejoin manual, lalu lanjut
+      - Config      : pengaturan tersimpan otomatis & dimuat saat execute
+      - Watermark   : nama Fian792 beranimasi (selalu aktif, hanya di layar sendiri)
+      - Bahasa      : pilih Indonesia / English saat execute (bisa diganti di tab Koneksi)
 
-    SESI: fitur aktif, Pos 1/2 & world terakhir disimpan ke file dan dipulihkan
-    otomatis setelah ganti world / rejoin / buka Roblox lagi.
-    Simpan skrip ini di folder workspace executor dengan nama
-    "PeexHub_GrowBlox.lua" (atau isi URL di tab Sesi) supaya auto-reload jalan.
+    Catatan:
+      - Semua aksi pakai fungsi asli game (place, pukul, ambil drop), bukan klik layar.
+      - Auto collect cek tiap frame & ambil semua drop sekaligus (paralel).
+      - Server menolak fly / noclip / infinite jump, jadi Clear & Farmer selalu jalan menapak.
+        Kalau tidak ada pijakan, script menaruh block dari inventori.
 ]]
 
--- Cegah dobel-eksekusi (hanya blok kalau GUI-nya benar-benar masih ada)
-local genv = (getgenv and getgenv()) or _G
-
-local function FindExistingGui()
-    local parents = {}
-    pcall(function()
-        if gethui then
-            table.insert(parents, gethui())
-        end
-    end)
-    pcall(function()
-        table.insert(parents, game:GetService("CoreGui"))
-    end)
-    pcall(function()
-        table.insert(parents, game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui"))
-    end)
-    for _, parent in ipairs(parents) do
-        local ok, found = pcall(function()
-            return parent:FindFirstChild("PeexHubGB")
-        end)
-        if ok and found then
-            return found
-        end
-    end
-    return nil
+---------------------------------------------------------------------
+-- SESI: jalankan ulang script = sesi lama dibersihkan dulu
+---------------------------------------------------------------------
+local G = (getgenv and getgenv()) or _G
+for _, key in ipairs({ "__Alfian", "__GTFarm" }) do -- __GTFarm = nama versi lama
+    if G[key] and G[key].Cleanup then pcall(G[key].Cleanup) end
+    G[key] = nil
+end
+local Session = {}
+G.__Alfian = Session
+local function alive()
+    return G.__Alfian == Session
 end
 
-do
-    local alive = FindExistingGui()
-    if genv.PeexHubGB_Loaded and alive then
-        -- Diam kalau cuma eksekusi ganda otomatis (autoexec + auto-reload)
-        if type(genv.PeexHubGB_Loaded) ~= "number" or os.clock() - genv.PeexHubGB_Loaded > 15 then
-            pcall(function()
-                alive.Enabled = true
-                local launcher = alive:FindFirstChild("Launcher")
-                if launcher then
-                    launcher.Visible = true
-                end
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Peex HUB | GrowBlox",
-                    Text = "Sudah aktif. Ketik /hpx atau tekan tombol P.",
-                    Duration = 4,
-                })
-            end)
-        end
-        return
-    end
-end
-genv.PeexHubGB_Loaded = os.clock()
-
+---------------------------------------------------------------------
+-- SERVICES & MODULE GAME
+---------------------------------------------------------------------
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterGui = game:GetService("StarterGui")
-local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
-local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-local TeleportService = game:GetService("TeleportService")
+local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local WorldRemotes = ReplicatedStorage:WaitForChild("WorldRemotes")
+-- Remote lama (versi game sebelum ByteNet). Hanya dipakai kalau fungsi baru tidak ada.
+local SetTileRemote = WorldRemotes:FindFirstChild("SetTile")
 
-local DropEvent = ReplicatedStorage
-    :WaitForChild("WorldRemotes")
-    :WaitForChild("DropItem")
+local ItemDB = require(Shared.ItemDB)
+local InventoryModule = require(Shared.Inventory)
+local NetOk, Net = pcall(require, Shared.Net)
 
-----------------------------------------------------------------------
--- CONFIG (disimpan ke file kalau executor mendukung writefile)
-----------------------------------------------------------------------
-local CONFIG_FILE = "PeexHub_GrowBlox.json"
+local GameGui = PlayerGui:WaitForChild("GameGui")
+local ParticlesOk, ParticlesModule = pcall(require, GameGui:WaitForChild("Particles"))
+local MenuModOk, MenuModule = pcall(require, GameGui:WaitForChild("WorldMenu"))
+local RolesOk, RolesModule = pcall(require, Shared:FindFirstChild("Roles"))
+local SfxOk, SfxModule = pcall(require, Shared:FindFirstChild("Sfx"))
 
-local Config = {
-    prefix = "/",
-    dropId = 242,
-    longhandRange = 3,
-    blinkMin = 0.2,
-    blinkMax = 0.5,
-    winDrop = 0, -- jumlah WL otomatis di-drop setelah /win (0 = mati)
-    pos1 = {},
-    pos2 = {},
-    -- Sesi
-    autoRestore = true, -- pulihkan fitur yang aktif sebelumnya
-    autoReload = true,  -- jalankan ulang skrip otomatis setelah teleport / rejoin
-    autoWarp = false,   -- masuk lagi ke world terakhir setelah buka Roblox
-    launcher = true,    -- tombol P melayang
-    lastWorld = "",
-    scriptUrl = "",     -- opsional: URL skrip untuk auto-reload
-    session = {},       -- fitur yang sedang aktif (key -> true)
-    -- Auto Farm
-    farmDelay = 0.22,   -- jeda antar pukulan (detik)
-    farmPlaceId = 0,    -- ID block yang di-place
-    farmGrid = { ["1,0"] = true }, -- kotak 5x5 (dx,dy dari posisi player) yang di-place
-    farmTake = true,    -- teleport ambil item setelah break
-    -- Auto Clear World
-    clearBreakDelay = 0.22, -- jeda antar putaran pukulan (detik); game sendiri memukul tiap 0.22 dtk
-    clearBatch = 2,         -- jumlah block yang dipukul tiap putaran (1-4)
-    clearTpDelay = 0.25,    -- jeda setelah teleport (detik)
-    clearTake = true,       -- ambil item drop otomatis
-    walkBatch = 3,          -- (lama, diganti clearPunch)
-    clearPunch = 3,         -- Auto Clear & Dirt Farm: jumlah block yang dipukul SEKALIGUS (1-3)
-    -- Auto Dirt Farm
-    dirtId = 0,             -- ID block dirt yang di-place (0 = otomatis cari item bernama \"Dirt\")
-    dirtPlace = true,       -- setelah dig + respawn, place dirt dari bawah ke atas
-    clearMode = "walk",     -- "walk" = jalan asli, turun 1x lalu sapu baris sampai ujung | "teleport" = pindah ke grup block
-    -- Hidden Name (tampilan lokal)
-    hiddenNameMode = "off", -- "off" | "self" | "all"
-    -- Auto Break by Block ID
-    breakIdText = "",       -- daftar ID block (pisah koma/spasi), cth: "4,112"
-    -- Spam Chat
-    spamText = "",         -- teks yang dikirim berulang (isi lewat /setspam atau tab Spam)
-    spamDelay = 3,          -- jeda antar pesan (detik, minimal 1.5)
-    -- Pathfinding / Click TP
-    navPath = true,         -- (lama, tidak dipakai lagi; diganti moveMode)
-    moveMode = "mix",       -- "walk" = jalan asli (analog) | "tp" = teleport per 3-5 block | "fly" = terbang tembus block | "mix" = jalan dulu, kalau buntu terbang
-    hopMin = 3,             -- teleport bertahap: minimal tile per lompatan
-    hopMax = 5,             -- teleport bertahap: maksimal tile per lompatan
-    hopDelay = 0.12,        -- jeda antar lompatan (detik)
-    navSpeed = 2,           -- jumlah tile per frame saat menyusuri path (1-12)
-    clickTpShift = false,   -- Click TP hanya aktif kalau tahan Shift kiri atau kanan (PC)
+local WindUI = loadstring(game:HttpGet(
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
+))()
+
+---------------------------------------------------------------------
+-- PENGATURAN & DATA
+---------------------------------------------------------------------
+local State = {
+    Running = false,
+    Mode = "Place + Break",       -- "Place + Break" | "Break saja" | "Place saja"
+    PlaceMs = 250,                -- jeda setelah tiap place
+    BreakMs = 220,                -- jeda tiap pukulan (normal 220)
+    AfterBreakMs = 300,           -- jeda setelah block hancur
+    HitsOverride = 0,             -- jumlah pukulan manual (0 = otomatis)
+    BreakBackground = true,       -- selalu ikut pecah background (tanpa tombol)
+    MultiTarget = 1,              -- jumlah tile dipukul bergantian (1 = biasa)
+    SelectedId = nil,
+    Offsets = {},                 -- tile yang dipilih di Grid
+    CalibX = 0,
+    CalibY = 0,
+    AntiAfk = true,
+    MutePunch = true,
+    LiteMode = false,
+    Role = "none",
+    AutoCollect = true,           -- ambil drop di tile yang dipilih
+    CollectAround = false,        -- ambil drop di sekitar karakter (radius) kapan saja
+    CollectRadius = 3,            -- jari-jari collect (tile)
+    Override = nil,               -- Pabrik memakai tile & block sendiri
+    Quiet = false,                -- tanpa notifikasi (dipakai Pabrik)
+    Cycles = 0,
+    Placed = 0,
+    Broken = 0,
+    Collected = 0,                -- jumlah drop yang diambil
+    CollectFail = 0,              -- jumlah drop yang ditolak server
+    LastAction = "-",
 }
 
-local SCRIPT_FILE = "PeexHub_GrowBlox.lua"
-local QueueReload -- didefinisikan di bagian sesi
+local Misc = {
+    Speed = 100,      -- walkspeed % (100 = normal)
+    InfJump = false,
+    Ghost = false,    -- fly + tembus block
+    UpHeld = false,   -- tombol ▲ di layar ditahan
+    DownHeld = false, -- tombol ▼ di layar ditahan
+    CustomName = true,          -- watermark nama (selalu aktif, mati hanya saat script ditutup)
+    NameText = "Fian792",  -- teks watermark
+}
 
-local MAX_AMOUNT = 10000
-local COOLDOWN = 0.3
+-- Auto Clear World
+local Clear = {
+    Running = false,
+    IncludeBg = true,         -- ikut pecah background
+    UseBlock = true,          -- taruh block kalau tidak ada pijakan
+    ScaffoldId = nil,         -- block yang dipakai untuk pijakan
+    Collect = true,           -- ambil drop tiap habis pecah
+    Sweep = "Kiri → Kanan",   -- "Kiri → Kanan" atau "Zig-zag"
+    Skip = {},                -- tile yang dilewati sementara
+    TopRow = -1,              -- baris yang sedang dibersihkan
+    DirRow = nil,             -- arah zig-zag untuk baris ini
+    Dir = nil,
+    Broken = 0,
+    Remaining = -1,
+    Status = "-",
+}
 
-local function LoadConfig()
-    pcall(function()
-        if isfile and readfile and isfile(CONFIG_FILE) then
-            local data = HttpService:JSONDecode(readfile(CONFIG_FILE))
-            for key, value in pairs(data) do
-                if Config[key] ~= nil and type(value) == type(Config[key]) then
-                    Config[key] = value
-                end
-            end
-        end
-    end)
-end
+-- Auto Splice: tanam Seed A lalu splice Seed B
+local Splice = {
+    Running = false,
+    Roam = true,        -- keliling world pakai A* (false = hanya tile Grid)
+    Roaming = false,
+    A = nil,
+    B = nil,
+    Ms = 300,
+    Made = 0,
+    Planted = 0,
+    Fail = {},
+    Skip = {},
+    Status = "-",
+}
 
-local function SaveConfig()
-    pcall(function()
-        if writefile then
-            writefile(CONFIG_FILE, HttpService:JSONEncode(Config))
-        end
-    end)
-end
+-- Lahan (farm world): baris block dari atas ke bawah
+local Land = {
+    X0 = 0, X1 = 99,  -- kolom awal & akhir
+    Y0 = 2,           -- baris block paling atas
+    Gap = 2,          -- jarak antar baris (2 = ada 1 tile kosong untuk pohon)
+    Rows = 10,        -- jumlah baris
+    Stairs = true,    -- ujung baris dibuka bergantian kiri/kanan (jalan naik-turun seperti tangga)
+}
 
-LoadConfig()
+-- Bangun Lahan
+local Build = {
+    Running = false,
+    BlockId = nil,
+    UseBlock = true,     -- boleh taruh block pijakan kalau baris pertama tidak terjangkau
+    Produce = true,      -- block kurang -> produksi dulu (tanam & panen) sampai cukup
+    ThenPabrik = false,  -- selesai -> langsung jalankan Pabrik
+    Placed = 0,
+    Phase = "-",
+    Status = "-",
+    Skip = {},
+}
 
-----------------------------------------------------------------------
--- UTIL
-----------------------------------------------------------------------
-local ToastHook = nil -- diisi oleh bagian GUI
+-- Pabrik: break block -> tanam seed -> panen -> break lagi, seed lebihan di-drop
+local Pabrik = {
+    Running = false,
+    SeedId = nil,
+    BlockId = nil,
+    WholeWorld = false,  -- tanam & panen di seluruh world (bukan hanya lahan)
+    Tiles = {},          -- tile break, relatif ke posisi break ("dx,dy")
+    BreakX = -1, BreakY = -1,
+    BreakSec = 60,       -- lama 1 sesi break sebelum cek pohon lagi
+    Drop = true,
+    Keep = 50,           -- seed yang disisakan untuk ditanam lagi
+    DropAt = 200,        -- drop kalau seed sudah sebanyak ini
+    DropWorld = "",      -- "" = world ini | "WORLD" | "WORLD:ID"
+    DropX = -1, DropY = -1,
+    Harvested = 0,
+    Planted = 0,
+    Dropped = 0,
+    Skip = {},
+    Status = "-",
+    Traveling = false,
+    Home = "",
+    Zone = nil,          -- tempat drop (tidak ikut di-collect)
+}
 
-local function Notify(message)
-    if ToastHook then
-        local ok = pcall(ToastHook, tostring(message))
-        if ok then
-            return
-        end
-    end
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = "Peex HUB | GrowBlox",
-            Text = message,
-            Duration = 4,
-        })
-    end)
-end
+local Guard = {
+    On = false,
+    Who = "Staff (Mod/Dev)",   -- "Staff (Mod/Dev)" | "Semua pemain"
+    StopAll = true,            -- diam semua aktivitas
+    Leave = false,             -- keluar world
+    AutoBack = true,           -- lanjut lagi setelah aman
+    BackSec = 60,              -- (keluar world) tunggu sebelum masuk lagi
+    CalmSec = 5,               -- (diam) tunggu sepi dulu sebelum lanjut
+    Mode = "idle",             -- idle | pause | away | out | back
+    Allow = {},                -- pemain biasa yang sudah ada saat Penjaga dinyalakan (diabaikan)
+    Alerted = {},              -- sudah diberi peringatan
+    Saved = nil,               -- aktivitas sebelum dihentikan
+    Token = 0,
+    BackAt = 0,
+    CalmAt = nil,
+    LeftFg = nil,
+    BackText = nil,
+    Status = "Mati",
+    Detected = 0,
+}
 
-local function Trim(text)
-    return (tostring(text):gsub("^%s+", ""):gsub("%s+$", ""))
-end
+-- Farmer: panen & tanam otomatis
+local Farmer = {
+    Running = false,
+    Harvest = true,
+    Plant = true,
+    Collect = true,
+    UseBlock = false,   -- taruh block kalau tidak ada jalan
+    ScaffoldId = nil,
+    HarvestMs = 250,    -- jeda setelah tiap panen
+    PlantMs = 250,      -- jeda setelah tiap tanam
+    SeedId = nil,
+    Skip = {},
+    Harvested = 0,
+    Planted = 0,
+    Status = "-",
+}
 
-local getgcFn = getgc or (debug and debug.getgc)
-local getupvalueFn = (debug and debug.getupvalue) or getupvalue
-local setupvalueFn = (debug and debug.setupvalue) or setupvalue
+-- Tombol gerak buatan (dipakai Clear & Farmer)
+local AutoInput = { active = false, left = false, right = false, jump = false, down = false }
 
-local function GetUpvalues(fn)
+-- Auto Chat
+local Spam = {
+    On = false,
+    Texts = {},         -- daftar pesan, dikirim bergantian
+    IntervalSec = 6,
+    Index = 1,
+    Sent = 0,
+    Last = "-",
+}
+
+local Refs = {
+    World = nil,      -- data world (fg, bg, ukuran)
+    Inv = nil,        -- inventori
+    SetTile = nil,    -- fungsi place game
+    State = nil,      -- posisi karakter
+    Punch = nil,      -- fungsi pukul game
+    Particles = {},   -- particle (untuk mode Lite)
+    Menu = nil,       -- menu game (untuk Staff)
+    Gems = nil,       -- update angka gems
+    Hud = nil,        -- jangkauan pukul & place
+    Trees = nil,      -- data pohon (waktu tanam)
+    Others = nil,     -- daftar pemain lain di world (untuk Penjaga)
+}
+
+-- Daftar drop di world (diambil dari game)
+local Drops = { list = nil, update = nil }
+local DropFailUntil = {}   -- drop yang ditolak, dicoba lagi nanti
+
+local UI = {}
+local Connections = {}
+local HitCount = {}   -- hitung pukulan (cadangan)
+local PlacedAt = {}   -- kapan tile di-place
+
+---------------------------------------------------------------------
+-- BAHASA (Indonesia / English)
+---------------------------------------------------------------------
+-- Cara kerja:
+--   - Semua teks script ditulis dalam Bahasa Indonesia.
+--   - Kalau English dipilih, I18N.T(teks) menerjemahkan:
+--       1. teks utuh (judul & deskripsi menu) dari daftar EN
+--       2. teks yang berubah-ubah (status, notifikasi) per frasa dari daftar PH
+--   - Menu WindUI dibungkus (I18N.wrap) supaya judul, deskripsi & isi status ikut diterjemahkan.
+local I18N = { Lang = "id", Saved = "id", Ask = true }
+
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+
+I18N.EN = {
+    -- grup sidebar & tab
+    ["Fitur"] = "Features", ["Keamanan"] = "Security", ["Setelan"] = "Setup",
+    ["Pengaturan"] = "Settings", ["Penjaga"] = "Guard", ["Statistik"] = "Stats", ["Tas"] = "Bag",
+    ["Lahan"] = "Land", ["Pabrik"] = "Factory", ["Koneksi"] = "Connection",
+    -- kotak
+    ["Kontrol"] = "Controls", ["Mode & Kecepatan"] = "Mode & Speed", ["Kecepatan"] = "Speed",
+    ["Karakter"] = "Character", ["Opsi"] = "Options", ["Pesan"] = "Messages",
+    ["Aksi saat terdeteksi"] = "Action when detected", ["Waktu"] = "Timing", ["Lainnya"] = "Other",
+    ["Quest Harian"] = "Daily Quests", ["Pohon (siap panen)"] = "Trees (ready to harvest)",
+    ["Auto Recycle (buang item)"] = "Auto Recycle (trash items)", ["Bentuk lahan"] = "Land shape",
+    ["Pilihan"] = "Options", ["Posisi & tile break"] = "Break position & tiles",
+    ["Koreksi posisi"] = "Position correction", ["Yang dikirim"] = "What to send",
+    -- Farm
+    ["Bisa juga lewat tombol START di Grid"] = "Can also use the START button in the Grid",
+    ["Ambil drop di tile yang dipilih"] = "Pick up drops on the selected tiles",
+    ["Collect di sekitar karakter"] = "Collect around character",
+    ["Ambil semua drop dalam radius, kapan saja"] = "Pick up all drops within the radius, anytime",
+    ["Radius collect (tile)"] = "Collect radius (tiles)",
+    ["Dipakai juga Clear, Farmer, Splice & Pabrik. Terlalu jauh bisa ditolak server"] =
+        "Also used by Clear, Farmer, Splice & Factory. Too far may be rejected by the server",
+    ["Buka Grid Tile"] = "Open Tile Grid",
+    ["Kotak 5x5, tengah = karakter"] = "5x5 grid, center = character",
+    -- Clear
+    ["Status Clear"] = "Clear Status",
+    ["Bersihkan dari baris atas ke bawah"] = "Clear from the top row down",
+    ["Arah sapu"] = "Sweep direction",
+    ["Zig-zag lebih cepat (tidak balik ke kiri)"] = "Zig-zag is faster (no going back left)",
+    ["Pakai block pijakan"] = "Use scaffold blocks",
+    ["Taruh block untuk lewat jurang / naik ke block melayang"] = "Place blocks to cross gaps / reach floating blocks",
+    ["Block pijakan"] = "Scaffold block",
+    ["Block yang dipakai untuk pijakan"] = "Block used as scaffold",
+    ["Auto collect tiap habis pecah"] = "Auto collect after each break",
+    ["Ambil drop di sekitar karakter"] = "Pick up drops around the character",
+    ["Reset tile yang dilewati"] = "Reset skipped tiles",
+    ["Coba lagi tile yang tadi gagal"] = "Retry tiles that failed",
+    -- Farmer
+    ["Status Farmer"] = "Farmer Status",
+    ["Jalankan Farmer"] = "Run Farmer",
+    ["Panen pohon siap & tanam seed otomatis"] = "Harvest ready trees & plant seeds automatically",
+    ["Seed untuk ditanam"] = "Seed to plant",
+    ["Hanya seed yang ada di inventori"] = "Only seeds in your inventory",
+    ["Refresh daftar seed"] = "Refresh seed list",
+    ["Hanya pohon yang sudah siap"] = "Only trees that are ready",
+    ["Tanam di atas block yang kosong"] = "Plant on top of empty blocks",
+    ["Ambil hasil panen di sekitar karakter"] = "Pick up harvest drops around the character",
+    ["Jeda setelah tiap panen"] = "Delay after each harvest",
+    ["Jeda setelah tiap tanam seed"] = "Delay after each seed planted",
+    ["Taruh block kalau tidak ada jalan (block tetap tertinggal)"] = "Place blocks when there is no path (blocks stay behind)",
+    -- Speed & opsi
+    ["Place semua tile dulu, lalu break"] = "Place all tiles first, then break",
+    ["Jeda setelah tiap place"] = "Delay after each place",
+    ["Jeda tiap pukulan (normal 220). Dipakai juga Clear"] = "Delay per hit (normal 220). Also used by Clear",
+    ["Auto Farm: tile dipukul bergantian (seperti 2 jari). Pakai Rayman's Fist = 2-3 tile segaris sekali pukul"] =
+        "Auto Farm: tiles are hit in turns (like 2 fingers). With Rayman's Fist = 2-3 tiles in a line per punch",
+    ["Jeda setelah hancur (ms)"] = "Delay after break (ms)",
+    ["Tunggu sebelum lanjut ke tile berikutnya"] = "Wait before moving to the next tile",
+    ["Mode Lite"] = "Lite Mode",
+    ["Matikan particle & suara (HP low-end)"] = "Turn off particles & sounds (low-end phones)",
+    ["Mute suara pukulan"] = "Mute punch sounds",
+    ["Pukulan per block (cadangan)"] = "Hits per block (fallback)",
+    ["Dipakai kalau 'Pukul: TIDAK'. 0 = otomatis"] = "Used when 'Punch: NO'. 0 = automatic",
+    ["Pilih Block"] = "Select Block",
+    ["Hanya item yang bisa di-place"] = "Only placeable items",
+    ["Refresh daftar"] = "Refresh list",
+    ["Lompat di udara (bisa kena rollback)"] = "Jump mid-air (may get rolled back)",
+    ["Fly + Tembus Block"] = "Fly + Noclip",
+    ["Tembus block, pakai tombol ▲/▼ (bisa kena rollback)"] = "Pass through blocks, use the ▲/▼ buttons (may get rolled back)",
+    ["Bahasa / Language"] = "Language / Bahasa",
+    ["Ganti bahasa, lalu execute ulang"] = "Change language, then re-execute",
+    -- Chat
+    ["Status Chat"] = "Chat Status",
+    ["Daftar pesan"] = "Message list",
+    ["Pisahkan dengan |   contoh: halo|jual dirt"] = "Separate with |   example: hi|selling dirt",
+    ["pesan 1|pesan 2|pesan 3"] = "message 1|message 2|message 3",
+    ["Interval (detik)"] = "Interval (seconds)",
+    ["Jeda antar pesan (min 3 detik)"] = "Delay between messages (min 3 seconds)",
+    ["Kirim pesan bergantian sesuai urutan"] = "Send messages in order, one after another",
+    ["Kirim 1 pesan sekarang"] = "Send 1 message now",
+    ["Tes kirim pesan berikutnya"] = "Test sending the next message",
+    ["Isi daftar pesan dulu (tekan Enter setelah mengetik)"] = "Fill in the message list first (press Enter after typing)",
+    -- Staff
+    ["Buka Staff Backpack"] = "Open Staff Backpack",
+    ["UI staff bawaan game (dikunci server)"] = "Game's built-in staff UI (locked by server)",
+    ["Title yang kamu punya"] = "Titles you own",
+    ["Refresh daftar role"] = "Refresh role list",
+    ["Pakai Role"] = "Use Role",
+    ["Sama seperti menu Title game"] = "Same as the game's Title menu",
+    ["Menu game belum ketemu. Tekan 'Hubungkan ke game' dulu"] = "Game menu not found. Press 'Connect to game' first",
+    ["Fungsi PickTitle tidak ada"] = "PickTitle function not found",
+    -- Penjaga
+    ["Status Penjaga"] = "Guard Status",
+    ["Mati"] = "Off",
+    ["Aktifkan Penjaga"] = "Enable Guard",
+    ["Pantau Mod / Dev / pemain yang masuk world"] = "Watch for Mods / Devs / players entering the world",
+    ["Yang dideteksi"] = "Detect",
+    ["Semua pemain: yang sudah ada saat dinyalakan diabaikan"] = "All players: those already here when enabled are ignored",
+    ["Diam semua aktivitas"] = "Pause all activities",
+    ["Keluar world"] = "Leave world",
+    ["Langsung keluar world saat terdeteksi"] = "Leave the world immediately when detected",
+    ["Lanjut otomatis setelah aman"] = "Auto resume when safe",
+    ["Keluar world: masuk lagi, cek, lalu lanjut aktivitas sebelumnya"] = "Leave world: rejoin, check, then resume previous activity",
+    ["Masuk world lagi setelah (detik)"] = "Rejoin world after (seconds)",
+    ["Untuk mode keluar world"] = "For leave-world mode",
+    ["Tunggu aman (detik)"] = "Safe wait (seconds)",
+    ["Untuk mode diam: jeda setelah mereka pergi"] = "For pause mode: delay after they leave",
+    ["Abaikan pemain yang ada sekarang"] = "Ignore players here now",
+    ["Untuk teman / akun sendiri (staff tetap dideteksi)"] = "For friends / alt accounts (staff are still detected)",
+    ["Batalkan tunggu / lanjut"] = "Cancel wait / resume",
+    ["Hentikan proses keluar-masuk & lanjut otomatis"] = "Stop the leave-rejoin process & auto resume",
+    ["Dibatalkan"] = "Cancelled",
+    -- Bonus
+    ["Klaim hadiah quest yang sudah selesai"] = "Claim rewards for finished quests",
+    ["Cek quest sekarang"] = "Check quests now",
+    ["Tukar semua code aktif yang belum dipakai"] = "Redeem all active codes not used yet",
+    ["Cek code sekarang"] = "Check codes now",
+    ["Redeem code manual"] = "Redeem code manually",
+    ["Ketik code lalu tekan Enter"] = "Type a code then press Enter",
+    ["KODE"] = "CODE",
+    -- Growscan
+    ["Info World"] = "World Info",
+    ["Tekan Scan sekarang"] = "Press Scan now",
+    ["Update otomatis tiap 2 detik"] = "Auto update every 2 seconds",
+    ["Scan sekarang"] = "Scan now",
+    ["Cari item"] = "Search item",
+    ["Saring nama item (kosongkan = semua)"] = "Filter item name (empty = all)",
+    ["contoh: seed"] = "example: seed",
+    ["Daftar"] = "List",
+    -- Statistik
+    ["Sesi ini"] = "This session",
+    ["Reset statistik"] = "Reset stats",
+    ["Mulai hitung dari nol"] = "Start counting from zero",
+    ["Kirim ke Discord sekarang"] = "Send to Discord now",
+    ["Perlu webhook di tab Discord"] = "Needs a webhook in the Discord tab",
+    ["Aktifkan webhook Discord dulu"] = "Enable the Discord webhook first",
+    ["Direset"] = "Reset",
+    ["Masuk antrian kirim"] = "Added to send queue",
+    -- Tas
+    ["Item yang dipilih di-recycle otomatis"] = "Selected items are recycled automatically",
+    ["Item yang di-recycle"] = "Items to recycle",
+    ["Bisa pilih banyak. Tool & lock tidak ditampilkan"] = "Multiple allowed. Tools & locks are not shown",
+    ["Recycle kalau jumlah >="] = "Recycle when amount >=",
+    ["200 = hanya saat penuh 1 slot"] = "200 = only when a slot is full",
+    ["Sisakan"] = "Keep",
+    ["Jumlah yang tidak ikut di-recycle"] = "Amount not recycled",
+    ["Refresh daftar item"] = "Refresh item list",
+    ["100 WL -> 1 DL, 100 DL -> 1 BGL (sama seperti game)"] = "100 WL -> 1 DL, 100 DL -> 1 BGL (same as the game)",
+    -- Splice
+    ["Status Splice"] = "Splice Status",
+    ["Tanam Seed A lalu splice Seed B"] = "Plant Seed A then splice Seed B",
+    ["Seed A (ditanam)"] = "Seed A (planted)",
+    ["Seed B (di-splice)"] = "Seed B (spliced)",
+    ["Keliling world (A*)"] = "Roam world (A*)",
+    ["Nyala: jalan ke seluruh world. Mati: hanya tile Grid 5x5"] = "On: walk the whole world. Off: only the 5x5 Grid tiles",
+    ["Jeda tanam / splice (ms)"] = "Plant / splice delay (ms)",
+    -- Lahan
+    ["Status Lahan"] = "Land Status",
+    ["Bangun Lahan"] = "Build Land",
+    ["Hitung block, produksi kalau kurang, lalu pasang dari baris bawah"] = "Count blocks, produce if short, then place from the bottom row",
+    ["Block lahan"] = "Land block",
+    ["Block padat dari inventori"] = "Solid block from inventory",
+    ["X awal"] = "Start X",
+    ["Kolom paling kiri"] = "Leftmost column",
+    ["X akhir"] = "End X",
+    ["Kolom paling kanan (lebih dari lebar world = sampai ujung)"] = "Rightmost column (beyond world width = to the edge)",
+    ["Y baris atas"] = "Top row Y",
+    ["Baris block paling atas (minimal 1)"] = "Topmost block row (minimum 1)",
+    ["Jarak antar baris"] = "Row spacing",
+    ["2 = y1, y3, y5.. | 3 = y1, y4, y7.. (maks 3 supaya bisa lompat naik)"] = "2 = y1, y3, y5.. | 3 = y1, y4, y7.. (max 3 so you can jump up)",
+    ["Jumlah baris"] = "Number of rows",
+    ["Tangga di pojok kiri-kanan"] = "Stairs at left-right corners",
+    ["Ujung baris dibuka bergantian, jadi bisa turun-naik zig-zag"] = "Row ends open alternately, so you can go up/down in a zig-zag",
+    ["Pakai posisi karakter sebagai pojok kiri-atas"] = "Use character position as top-left corner",
+    ["X awal = kolom karakter, Y baris atas = tile di bawah kaki"] = "Start X = character column, top row Y = tile under the feet",
+    ["Produksi block kalau kurang"] = "Produce blocks if short",
+    ["Tanam & panen seed block itu dulu sampai cukup"] = "Plant & harvest that block's seed first until enough",
+    ["Boleh taruh block pijakan"] = "Allow scaffold blocks",
+    ["Kalau baris paling bawah tidak terjangkau dari tanah"] = "If the bottom row can't be reached from the ground",
+    ["Lanjut Pabrik setelah selesai"] = "Start Factory when finished",
+    -- Pabrik
+    ["Status Pabrik"] = "Factory Status",
+    ["Jalankan Pabrik"] = "Run Factory",
+    ["Break -> tanam -> panen -> break lagi, seed lebihan di-drop"] = "Break -> plant -> harvest -> break again, extra seeds are dropped",
+    ["Seed pabrik"] = "Factory seed",
+    ["Block-nya otomatis (contoh: Dirt Seed -> Dirt)"] = "Block is automatic (example: Dirt Seed -> Dirt)",
+    ["Tanam di seluruh world"] = "Plant in the whole world",
+    ["Mati = hanya di lahan (tab Lahan)"] = "Off = only on the land (Land tab)",
+    ["Pakai posisi sekarang untuk break"] = "Use current position for breaking",
+    ["Berdiri di tempat break, lalu tekan"] = "Stand at the break spot, then press",
+    ["Pilih tile break (Grid)"] = "Select break tiles (Grid)",
+    ["Grid terbuka dalam mode Pabrik (terpisah dari tile Auto Farm)"] = "Grid opens in Factory mode (separate from Auto Farm tiles)",
+    ["Lama 1 sesi break (detik)"] = "Break session length (seconds)",
+    ["Setelah ini cek pohon siap dulu"] = "After this, check for ready trees first",
+    ["Sisakan seed"] = "Seeds to keep",
+    ["Untuk ditanam lagi"] = "For replanting",
+    ["Drop kalau seed sudah"] = "Drop when seeds reach",
+    ["Contoh 200 & sisakan 50 = drop 150"] = "Example 200 & keep 50 = drop 150",
+    ["World drop"] = "Drop world",
+    ["Kosong = world ini | WORLD | WORLD:ID (masuk lewat pintu ID)"] = "Empty = this world | WORLD | WORLD:ID (enter via door ID)",
+    ["Pakai posisi sekarang untuk drop"] = "Use current position for dropping",
+    ["Berdiri di tempat drop (boleh di world lain), lalu tekan"] = "Stand at the drop spot (can be another world), then press",
+    ["Hapus posisi drop"] = "Clear drop position",
+    ["Drop di titik kedatangan (pintu) saja"] = "Drop at the arrival point (door) instead",
+    ["Ada block tapi posisi / tile break belum diatur"] = "Has blocks but break position / tiles are not set",
+    ["Gagal jalan ke posisi break, dicoba lagi nanti"] = "Failed to walk to break position, retrying later",
+    -- Koneksi & config
+    ["Referensi game"] = "Game references",
+    ["Hubungkan ke game"] = "Connect to game",
+    ["Pakai setelah pindah world"] = "Use after changing worlds",
+    ["Simpan pengaturan otomatis, dimuat lagi saat execute"] = "Save settings automatically, loaded again on execute",
+    ["Simpan config sekarang"] = "Save config now",
+    ["Hapus file config, lalu execute ulang"] = "Delete the config file, then re-execute",
+    ["Koreksi posisi X"] = "Position correction X",
+    ["Isi 1 / -1 kalau tile meleset"] = "Enter 1 / -1 if tiles are off",
+    ["Koreksi posisi Y"] = "Position correction Y",
+    ["Masuk lagi & lanjut aktivitas kalau terlempar"] = "Rejoin & resume activity if kicked out",
+    ["Terlempar dari world"] = "Kicked from world",
+    ["World ditutup / di-kick: masuk lagi ke world yang sama"] = "World closed / kicked: rejoin the same world",
+    ["Selalu kembali ke world"] = "Always return to world",
+    ["Kalau berada di luar world (layar pilih world), masuk lagi otomatis"] = "If outside a world (world select screen), rejoin automatically",
+    ["World tujuan"] = "Target world",
+    ["Kosongkan = world terakhir yang kamu masuki"] = "Empty = the last world you entered",
+    ["NAMAWORLD"] = "WORLDNAME",
+    ["Rejoin world sekarang"] = "Rejoin world now",
+    ["Keluar lalu masuk lagi, aktivitas dilanjutkan"] = "Leave and rejoin, activity resumes",
+    ["Disconnect dari server"] = "Disconnected from server",
+    ["Teleport ulang ke game lalu masuk world terakhir"] = "Teleport back to the game and enter the last world",
+    ["Jeda sebelum masuk lagi (detik)"] = "Delay before rejoining (seconds)",
+    ["URL script (untuk rejoin server)"] = "Script URL (for server rejoin)",
+    ["Link raw script ini, supaya jalan lagi setelah teleport. Kosong = pakai autoexec"] =
+        "Raw link of this script, so it runs again after teleport. Empty = use autoexec",
+    ["Sedang proses masuk world, tunggu dulu"] = "Already entering a world, please wait",
+    ["World tujuan belum ada. Isi 'World tujuan' atau masuk world dulu"] = "No target world yet. Fill in 'Target world' or enter a world first",
+    -- Discord
+    ["Notifikasi Discord"] = "Discord Notifications",
+    ["Kirim kabar penting ke channel Discord kamu"] = "Send important updates to your Discord channel",
+    ["URL Webhook"] = "Webhook URL",
+    ["Channel Discord > Edit > Integrasi > Webhook > Salin URL"] = "Discord channel > Edit > Integrations > Webhook > Copy URL",
+    ["Tes kirim"] = "Test send",
+    ["Laporan statistik (menit)"] = "Stats report (minutes)",
+    ["Kirim statistik sesi tiap X menit. 0 = mati"] = "Send session stats every X minutes. 0 = off",
+    ["Mod / Dev / pemain masuk world"] = "Mod / Dev / player entered world",
+    ["Aktivitas berhenti (block habis / error)"] = "Activity stopped (out of blocks / error)",
+    ["Quest diklaim / redeem berhasil"] = "Quest claimed / redeem successful",
+    ["Terlempar / disconnect / masuk lagi"] = "Kicked / disconnected / rejoined",
+    ["Pabrik drop seed / lahan selesai / berhenti"] = "Factory dropped seeds / land done / stopped",
+    ["Isi URL webhook dulu"] = "Fill in the webhook URL first",
+    ["Pesan tes masuk antrian"] = "Test message queued",
+    ["URL webhook tidak valid"] = "Invalid webhook URL",
+    ["Tes notifikasi dari Fian792"] = "Test notification from Fian792",
+    -- pilihan dropdown
+    ["Kiri → Kanan"] = "Left → Right", ["Semua pemain"] = "All players", ["Semua"] = "All",
+    ["Depan"] = "Front", ["Break saja"] = "Break only", ["Place saja"] = "Place only",
+    ["(memuat...)"] = "(loading...)", ["(inventori kosong)"] = "(inventory empty)",
+    ["(inventori belum terbaca)"] = "(inventory not read yet)",
+    ["(inventori kosong / belum terbaca)"] = "(inventory empty / not read yet)",
+    ["Channel chat world belum ada (masuk world dulu)"] = "World chat channel not found (enter a world first)",
+    ["Daftar pesan kosong"] = "Message list is empty",
+    ["Inventori penuh"] = "Inventory full",
+    ["Tanya bahasa saat execute"] = "Ask language on execute",
+    ["Execute ulang untuk ganti bahasa / Re-execute to apply"] = "Re-execute to apply the new language",
+    ["Munculkan pilihan bahasa tiap execute"] = "Show the language choice on every execute",
+    -- Grid
+    ["Grid Tile"] = "Tile Grid", ["Bersihkan pilihan"] = "Clear selection",
+    ["Tile Break Pabrik"] = "Factory Break Tiles", ["START PABRIK"] = "START FACTORY", ["STOP PABRIK"] = "STOP FACTORY",
+}
+
+-- Frasa untuk teks yang berubah-ubah (status, notifikasi, pesan Discord)
+I18N.PH = {
+    { "Data world belum ketemu", "World data not found" }, { "Data drop belum ketemu", "Drop data not found" },
+    { "Data pohon belum ketemu", "Tree data not found" }, { "Data pohon tidak ketemu", "Tree data not found" },
+    { "Tekan 'Hubungkan ke game'", "Press 'Connect to game'" }, { "Hubungkan ke game", "Connect to game" },
+    { "Kamu belum masuk world", "You are not in a world yet" }, { "belum masuk world", "not in a world yet" },
+    { "tidak di world", "not in a world" },
+    { "Menunggu karakter / world...", "Waiting for character / world..." },
+    { "Menunggu pohon siap", "Waiting for trees to be ready" }, { "Menunggu", "Waiting" },
+    { "Dihentikan karena", "Stopped because" }, { "Dihentikan", "Stopped" }, { "dimulai", "started" },
+    { "hubungkan ulang ke game", "reconnecting to game" },
+    { "Dijeda Penjaga", "Paused by Guard" }, { "Dijeda", "Paused" }, { "Waspada", "Alert" }, { "Ada:", "Present:" },
+    { "Aman", "Safe" }, { "Pemain di world", "Players in world" }, { "Staff online di server", "Staff online on server" },
+    { "Terdeteksi", "Detected" }, { "kali", "times" }, { "tidak ada", "none" },
+    { "pemain diabaikan", "players ignored" },
+    { "Masuk world", "Entered world" }, { "Keluar world", "Leave world" },
+    { "Masuk lagi dalam", "Rejoining in" }, { "Masuk lagi ke", "Rejoining" }, { "Masuk lagi berhasil", "Rejoined" },
+    { "Masuk lagi", "Rejoin" }, { "Masuk ke", "Entering" }, { "Masih ada", "Still here:" }, { "Keluar lagi", "Leaving again" },
+    { "Sudah keluar world", "Already left the world" }, { "lanjut otomatis mati", "auto resume off" },
+    { "Di luar world", "Outside the world" }, { "Mereka sudah pergi", "They left" }, { "Lanjut dalam", "Resuming in" },
+    { "Sudah aman", "Safe now" }, { "World aman", "World is safe" }, { "World sudah beda", "Different world" },
+    { "aktivitas tidak dilanjutkan", "activity not resumed" }, { "aktivitas dilanjutkan", "activity resumed" },
+    { "aktivitas hanya dijeda", "activity only paused" },
+    { "lanjut aktivitas", "resuming activity" }, { "Lanjut aktivitas", "Resuming activity" },
+    { "Gagal balik ke posisi farm", "Failed to return to farm position" },
+    { "Auto Farm tidak dilanjutkan", "Auto Farm not resumed" },
+    { "Jalan balik ke posisi farm", "Walking back to farm position" },
+    { "Jalan ke posisi break", "Walking to break position" }, { "Jalan ke posisi drop", "Walking to drop position" },
+    { "Cari jalan A* ke", "Finding A* path to" }, { "Jalan ke", "Walking to" }, { "Lompati lubang ke", "Jumping gap to" },
+    { "Lompat ke", "Jumping to" }, { "Turun ke", "Dropping down to" }, { "Naik pakai block ke", "Climbing with block to" },
+    { "Taruh block pijakan", "Placing scaffold block" },
+    { "di bawahnya berbahaya", "dangerous below" }, { "di bawahnya jurang", "pit below" },
+    { "Lewati pijakan", "Skip foothold" }, { "Lewati", "Skip" },
+    { "Pukul", "Hit" }, { "Pecah", "Broke" }, { "Panen", "Harvest" }, { "Tanam", "Plant" },
+    { "Pasang lahan: sisa", "Placing land: remaining" }, { "Pasang", "Place" },
+    { "Produksi block", "Producing blocks" }, { "total butuh", "total needed" },
+    { "Lahan selesai", "Land finished" }, { "Block cukup", "Enough blocks" }, { "mulai pasang", "starting to place" },
+    { "Block habis, masih kurang", "Out of blocks, still short" }, { "Seed & block habis", "Seeds & blocks used up" },
+    { "tidak ada pohon tumbuh", "no trees growing" }, { "Butuh", "Need" }, { "Seed habis", "Out of seeds" },
+    { "seed-nya tidak ketemu", "its seed was not found" }, { "Block kurang", "Blocks short" },
+    { "Sisa tile belum terjangkau / terhalang, dicoba lagi", "Remaining tiles unreachable / blocked, retrying" },
+    { "Lahan penuh, menunggu", "Land is full, waiting" }, { "Bukan di world pabrik", "Not in the factory world" },
+    { "menunggu...", "waiting..." }, { "Pergi ke", "Going to" }, { "untuk drop", "to drop" }, { "Pulang ke", "Returning to" },
+    { "Gagal pulang ke world pabrik", "Failed to return to factory world" }, { "Drop gagal", "Drop failed" },
+    { "tidak bisa drop di posisi ini", "can't drop at this position" },
+    { "tidak bisa jalan ke posisi drop", "can't walk to the drop position" },
+    { "Posisi drop belum diatur", "Drop position not set" }, { "drop dilewati", "drop skipped" },
+    { "Posisi drop dihapus", "Drop position cleared" }, { "Posisi drop", "Drop position" }, { "Posisi break", "Break position" },
+    { "di posisi pabrik", "at the factory position" }, { "Pabrik berhenti", "Factory stopped" },
+    { "Bangun Lahan", "Build Land" }, { "Pabrik", "Factory" }, { "Penjaga", "Guard" }, { "Lahan", "Land" },
+    { "Gagal masuk lagi ke", "Failed to rejoin" }, { "Gagal masuk", "Failed to enter" }, { "Gagal keluar world", "Failed to leave world" },
+    { "Dicoba lagi nanti", "Will retry later" }, { "dicoba lagi", "retrying" },
+    { "Gagal splice", "Splice failed" }, { "ditolak server", "rejected by server" }, { "Splice jadi", "Spliced into" },
+    { "Menunggu tile Grid kosong (panen dulu pohonnya)", "Waiting for empty Grid tiles (harvest the trees first)" },
+    { "Seed A habis, tidak ada pohon A yang bisa di-splice", "Seed A used up, no A trees to splice" },
+    { "tidak ada tempat tanam / pohon untuk di-splice", "no planting spot / tree to splice" },
+    { "Karakter tidak ditemukan (keluar world?)", "Character not found (left the world?)" },
+    { "di inventori habis", "in inventory is used up" }, { "Auto Farm berhenti", "Auto Farm stopped" },
+    { "Auto Clear berhenti", "Auto Clear stopped" }, { "Farmer berhenti", "Farmer stopped" },
+    { "Inventori penuh", "Inventory full" }, { "tidak bisa diambil lagi", "can't be picked up anymore" },
+    { "Laporan statistik", "Stats report" }, { "Quest diklaim", "Quest claimed" }, { "Redeem berhasil", "Redeem successful" },
+    { "Redeem gagal", "Redeem failed" }, { "Terlempar dari world", "Kicked from world" }, { "Terlempar dari", "Kicked from" },
+    { "Kembali otomatis", "Auto return" }, { "berhasil", "succeeded" },
+    { "Rejoin: menunggu masuk", "Rejoin: waiting to enter" }, { "Rejoin: gagal masuk", "Rejoin: failed to enter" },
+    { "Disconnect dari server", "Disconnected from server" }, { "script tidak di-queue", "script not queued" },
+    { "Berhasil masuk lagi", "Rejoined" }, { "World tujuan", "Target world" },
+    { "Mode diganti, nyalakan lagi", "Mode changed, turn it on again" }, { "World sudah bersih!", "World is clean!" },
+    { "Block pijakan belum dipilih / habis: jalan tanpa block pijakan", "Scaffold block not selected / empty: moving without scaffold" },
+    { "Auto Harvest tidak bisa cek pohon siap", "Auto Harvest can't check ready trees" },
+    { "Aktifkan Auto Harvest atau Auto Plant", "Enable Auto Harvest or Auto Plant" },
+    { "Pilih seed dulu untuk Auto Plant", "Select a seed for Auto Plant first" },
+    { "Pilih seed pabrik dulu", "Select a factory seed first" }, { "Block dari seed ini tidak ketemu", "Block for this seed not found" },
+    { "Atur lahan dulu", "Set up the land first" }, { "Pilih block padat untuk lahan", "Select a solid block for the land" },
+    { "Pilih Seed A dan Seed B dulu", "Select Seed A and Seed B first" }, { "Seed A dan Seed B harus beda", "Seed A and Seed B must differ" },
+    { "Kombinasi ini tidak bisa di-splice", "This combination can't be spliced" },
+    { "Pilih tile dulu di Grid Tile", "Select tiles in the Tile Grid first" }, { "Pilih block dari inventori", "Select a block from inventory" },
+    { "Hentikan Auto Farm / Clear / Farmer dulu", "Stop Auto Farm / Clear / Farmer first" },
+    { "atau nyalakan Keliling world", "or turn on Roam world" },
+    { "Kontrol gerak game (WorldMenu.isDown) tidak ketemu", "Game movement control (WorldMenu.isDown) not found" },
+    { "Fungsi pukul game belum ketemu", "Game punch function not found" },
+    { "Seed habis: atur posisi & tile break di tab Pabrik supaya bisa dapat seed", "Out of seeds: set break position & tiles in the Factory tab to get seeds" },
+    { "Config dihapus. Execute ulang untuk default", "Config deleted. Re-execute for defaults" },
+    { "Config dimuat", "Config loaded" }, { "Belum ada config", "No config yet" }, { "Tersimpan", "Saved" },
+    { "Executor tidak bisa simpan file", "Executor can't save files" }, { "Executor tidak bisa hapus file", "Executor can't delete files" },
+    { "Executor tidak punya fungsi request", "Executor has no request function" },
+    { "Gagal simpan file", "Failed to save file" }, { "Gagal hapus file", "Failed to delete file" },
+    { "Gagal kirim", "Failed to send" }, { "Terkirim", "Sent" }, { "Antrian", "Queue" },
+    { "Role dikirim", "Role sent" }, { "Gagal buka", "Failed to open" }, { "Gagal", "Failed" },
+    -- label status
+    { "BERHENTI", "STOPPED" }, { "JALAN", "RUNNING" }, { "fase", "phase" }, { "PANEN", "HARVEST" }, { "TANAM", "PLANT" },
+    { "TUNGGU", "WAIT" }, { "TIDAK terbaca (harvest mati)", "NOT readable (harvest off)" }, { "terbaca", "readable" },
+    { "TIDAK", "NO" }, { "cadangan", "fallback" }, { "Inventori", "Inventory" }, { "Posisi", "Position" },
+    { "Karakter", "Character" }, { "Aksi", "Action" }, { "Baris", "Row" }, { "Pohon", "Trees" }, { "Pijakan", "Scaffold" },
+    { "Pemain", "Players" }, { "belum dipilih", "not selected" }, { "belum diatur", "not set" }, { "ditolak", "rejected" },
+    { "Bentuk", "Shape" }, { "baris", "rows" }, { "jarak", "spacing" }, { "tangga", "stairs" }, { "punya", "have" },
+    { "butuh", "need" }, { "kurang", "short" }, { "cukup", "enough" }, { "Terpasang", "Placed" },
+    { "terhalang block lain", "blocked by other blocks" }, { "Celah tanam terisi block", "Planting gaps filled with blocks" },
+    { "bersihkan dulu", "clear it first" }, { "Celah tanam: bersih", "Planting gaps: clear" }, { "Seed block", "Block seed" },
+    { "Hasil", "Result" }, { "panen", "harvest" }, { "tanam", "plant" }, { "di-drop", "dropped" }, { "sisakan", "keep" },
+    { "drop saat", "drop at" }, { "world ini", "this world" }, { "pintu", "door" }, { "Lama sesi", "Session time" },
+    { "Block pecah", "Blocks broken" }, { "Block di-place", "Blocks placed" }, { "Drop diambil", "Drops collected" },
+    { "Item terbanyak", "Top items" }, { "Selesai", "Done" }, { "diklaim script", "claimed by script" },
+    { "Quest baru dalam", "New quests in" }, { "Quest belum bisa diambil", "Quests not available yet" },
+    { "Gagal ambil quest", "Failed to get quests" }, { "Gagal ambil daftar code", "Failed to get code list" },
+    { "Pesan terakhir", "Last message" }, { "Cek lagi dalam", "Checking again in" }, { "detik", "seconds" },
+    { "Auto klaim mati", "Auto claim off" }, { "Code aktif", "Active codes" }, { "sudah ditukar", "redeemed" },
+    { "ditukar script", "redeemed by script" }, { "Auto redeem mati", "Auto redeem off" },
+    { "Redeem sedang ditutup", "Redeem is closed" }, { "Block depan", "Front blocks" }, { "tumpukan", "piles" },
+    { "siap panen", "ready" }, { "tumbuh", "growing" }, { "Scan terakhir", "Last scan" }, { "siap", "ready" },
+    { "berikut", "next" }, { "Tidak ada yang cocok", "No matches" }, { "Kosong", "Empty" }, { "Tidak ada pohon", "No trees" },
+    { "item lain", "more items" }, { "jenis lain", "more types" }, { "pakai Cari item", "use Search item" },
+    { "(pohon)", "(tree)" }, { "Di-recycle", "Recycled" }, { "Item dipilih", "Items selected" }, { "Ditanam", "Planted" },
+    { "tidak bisa di-splice", "can't be spliced" }, { "Pilih Seed A dan Seed B", "Select Seed A and Seed B" },
+    { "Menghitung...", "Calculating..." }, { "Mulai...", "Starting..." }, { "Lanjut aktivitas...", "Resuming activity..." },
+    { "data pemain belum ketemu", "player data not found" }, { "belum ketemu", "not found" },
+    { "tidak ketemu", "not found" }, { "ketemu", "found" }, { "tekan", "press" },
+    { "tidak ada block padat di inventori", "no solid blocks in inventory" },
+    { "tidak ada seed di inventori", "no seeds in inventory" }, { "tidak ada pohon", "no trees" },
+    { "tidak ada tempat tanam", "no planting spot" },
+    { "Y baris atas", "top row Y" }, { "baris atas", "top row" }, { "Y awal", "start Y" }, { "X awal", "start X" },
+    { "jumlah baris", "row count" }, { "masuk lagi dalam", "rejoining in" }, { "masuk ke", "entering" },
+    { "dalam", "in" }, { "Executor tidak punya", "Executor has no" },
+    { "tidak bisa dijangkau / dipecah", "can't be reached / broken" }, { "Sisa", "Remaining" },
+    { "dilewati, coba ulang", "skipped, retrying" }, { "Gagal membaca pengaturan", "Failed to read settings" },
+    { "balasan kosong", "empty reply" }, { "fungsi drop game tidak ketemu", "game drop function not found" },
+    { "fungsi masuk world tidak ketemu", "game enter-world function not found" },
+    { "fungsi splice game tidak ketemu", "game splice function not found" },
+    { "gagal masuk", "failed to enter" }, { "nama world tidak diketahui", "unknown world name" },
+    { "tidak bisa ke server", "can't reach the server" }, { "tunggu", "wait" },
+    { "world penuh / dikunci / gagal", "world full / locked / failed" }, { "aman", "safe" }, { "Fase", "Phase" },
+    { "Mati", "Off" }, { "mati", "off" }, { "pohon siap", "trees ready" }, { "pohon", "trees" },
+    { "di-recycle", "recycled" }, { "di-splice", "spliced" }, { "di-place", "placed" }, { "di-queue", "queued" }, { "habis", "used up" }, { "dan", "and" }, { "atau", "or" }, { "dari", "from" }, { "untuk", "for" },
+    { "sudah", "already" }, { "belum", "not yet" }, { "lagi", "again" }, { "di", "at" }, { "ke", "to" },
+}
+
+-- Pola tambahan (format waktu "1j 2m 3d" -> "1h 2m 3s", "/jam" -> "/hour")
+I18N.RAW = {
+    { "(%d+)j (%d+)m (%d+)d", "%1h %2m %3s" },
+    { "(%d+)m (%d+)d", "%1m %2s" },
+    { "(%d+)j (%d+)m", "%1h %2m" },
+    { "/jam", "/hour" },
+    { "(%d+) dtk", "%1 s" },
+}
+
+function I18N.prep()
     local list = {}
-    for i = 1, 255 do
-        local ok, value = pcall(getupvalueFn, fn, i)
-        if not ok then
-            break
-        end
-        list[i] = value
-    end
-    return list
-end
-
-----------------------------------------------------------------------
--- AKSES KE INTERNAL GAME (lewat getgc)
-----------------------------------------------------------------------
-local cache = { _scan = {} }
-
-local function ScanGc(name, check)
-    local cached = cache[name]
-    if cached and check(cached) then
-        return cached
-    end
-    if not getgcFn then
-        return nil
-    end
-    -- jangan scan memori lebih sering dari tiap 3 detik (anti-lag di mobile)
-    local now = os.clock()
-    local last = cache._scan[name]
-    if last and now - last < 3 then
-        return nil
-    end
-    cache._scan[name] = now
-    for _, obj in ipairs(getgcFn(true)) do
-        if type(obj) == "table" then
-            local ok, valid = pcall(check, obj)
-            if ok and valid then
-                cache[name] = obj
-                return obj
-            end
+    for _, p in ipairs(I18N.PH) do
+        if p[1] ~= p[2] then
+            local pat = p[1]:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0")
+            if p[1]:match("^%w") then pat = "%f[%w]" .. pat end
+            if p[1]:match("%w$") then pat = pat .. "%f[%W]" end
+            list[#list + 1] = { pat, (p[2]:gsub("%%", "%%%%")), #p[1] }
         end
     end
-    return nil
+    table.sort(list, function(a, b) return a[3] > b[3] end)
+    I18N.list = list
 end
 
--- Tabel inventory (onDrop, canDrop, isWorn, buildRange, refresh)
-local function FindInventory()
-    return ScanGc("inventory", function(t)
-        return type(rawget(t, "onDrop")) == "function"
-            and type(rawget(t, "canDrop")) == "function"
-            and type(rawget(t, "isWorn")) == "function"
-    end)
+-- Terjemahkan teks (kalau bahasa = English)
+function I18N.T(s)
+    if I18N.Lang ~= "en" or type(s) ~= "string" or s == "" then return s end
+    local e = I18N.EN[s]
+    if e then return e end
+    if not I18N.list then I18N.prep() end
+    for _, r in ipairs(I18N.list) do s = s:gsub(r[1], r[2]) end
+    for _, r in ipairs(I18N.RAW) do s = s:gsub(r[1], r[2]) end
+    return s
 end
 
--- Tabel world (enter, dropOk, goTo, name, ghost)
-local function FindWorld()
-    return ScanGc("world", function(t)
-        return type(rawget(t, "enter")) == "function"
-            and type(rawget(t, "dropOk")) == "function"
-    end)
+-- Teks pilihan dropdown: hanya terjemahan utuh (nama item game tidak diubah)
+function I18N.V(s)
+    if I18N.Lang ~= "en" or type(s) ~= "string" then return s end
+    return I18N.EN[s] or s
 end
 
--- Rig karakter lokal: [1] hadap kanan, [-1] hadap kiri, [0] portrait
-local function FindRigs()
-    return ScanGc("rigs", function(t)
-        local a, b = rawget(t, 1), rawget(t, -1)
-        return type(a) == "table" and type(b) == "table"
-            and typeof(rawget(a, "body")) == "Instance"
-            and typeof(rawget(b, "head")) == "Instance"
-    end)
-end
+-- Bungkus objek WindUI: judul, deskripsi, pilihan dropdown & isi status ikut diterjemahkan
+I18N.Backs = setmetatable({}, { __mode = "k" })
 
--- Tabel item yang sedang dipakai (slot -> id), upvalue dari isWorn
-local function GetWorn()
-    local inv = FindInventory()
-    if not inv then
-        return nil
-    end
-    local worn = GetUpvalues(inv.isWorn)[1]
-    if type(worn) == "table" then
-        return worn
-    end
-    return nil
-end
-
-local ItemDB = nil
-local function GetItemDB()
-    if ItemDB then
-        return ItemDB
-    end
-    local ok, result = pcall(function()
-        local shared = ReplicatedStorage:WaitForChild("Shared", 5)
-        return require(shared:WaitForChild("ItemDB", 5))
-    end)
-    if ok and type(result) == "table" then
-        ItemDB = result
-    end
-    return ItemDB
-end
-
-----------------------------------------------------------------------
--- POSISI GRID (canDrop -> world, x, facing | onDrop -> x, facing, y)
-----------------------------------------------------------------------
-local function GetGridState()
-    local inv = FindInventory()
-    if not inv then
-        return nil, "Inventory game tidak ditemukan (executor perlu getgc & debug.getupvalue)"
-    end
-
-    local canDropUp = GetUpvalues(inv.canDrop)
-    local x = canDropUp[2]
-    local facing = canDropUp[3]
-    if type(x) ~= "number" or type(facing) ~= "number" then
-        return nil, "Upvalue X/arah tidak cocok"
-    end
-
-    local nums = {}
-    for _, value in ipairs(GetUpvalues(inv.onDrop)) do
-        if type(value) == "number" then
-            table.insert(nums, value)
-        end
-    end
-
-    local y = nums[3]
-    if type(y) ~= "number" then
-        return nil, "Upvalue Y tidak ditemukan"
-    end
-
-    return x, y, (facing >= 0) and 1 or -1
-end
-
--- Koordinat tile (sama dengan yang dipakai game: baris = floor(y - 0.475))
-local function GetTile()
-    local x, y = GetGridState()
-    if not x then
-        return nil
-    end
-    return math.floor(x), math.floor(y - 0.475)
-end
-
-local Nav -- didefinisikan di bagian Pathfinding
-
-local function CurrentWorldName()
-    local world = FindWorld()
-    local name = world and rawget(world, "name")
-    return type(name) == "string" and name or ""
-end
-
-----------------------------------------------------------------------
--- DROP WORLD LOCK
-----------------------------------------------------------------------
-local busy = false
-
-local function DropWorldLock(amount)
-    if busy then
-        Notify("Tunggu sebentar bre!")
-        return
-    end
-
-    local x, y, facing = GetGridState()
-    if not x then
-        Notify("Posisi tidak terdeteksi: " .. tostring(y))
-        return
-    end
-
-    local inv = FindInventory()
-    local okCan, canDrop = pcall(inv.canDrop)
-    if okCan and canDrop == false then
-        Notify("Tidak bisa drop di posisi ini!")
-        return
-    end
-
-    local dropX = x + facing * (0.7 + math.random() * 0.1)
-    local dropY = y - 0.45
-
-    busy = true
-
-    local success, err = pcall(function()
-        DropEvent:FireServer(Config.dropId, amount, dropX, dropY)
-    end)
-
-    if success then
-        Notify("Sukses Drop " .. amount .. " World Lock")
-    else
-        Notify("Request gagal!")
-        warn(err)
-    end
-
-    task.wait(COOLDOWN)
-    busy = false
-end
-
-----------------------------------------------------------------------
--- WARP ANTAR WORLD (/tp, /warp) -> world.enter milik game
-----------------------------------------------------------------------
-local function WarpToWorld(name)
-    name = Trim(name):upper()
-    if name == "" then
-        Notify("Contoh: " .. Config.prefix .. "tp START")
-        return
-    end
-
-    local world = FindWorld()
-    if not world then
-        Notify("Fungsi world game tidak ditemukan!")
-        return
-    end
-
-    Notify("Menuju world " .. name .. "...")
-    local ok, success, message, teleporting = pcall(world.enter, name)
-
-    if not ok then
-        Notify("Warp gagal!")
-        warn(success)
-    elseif success then
-        Notify("Berhasil masuk world " .. name)
-    elseif teleporting then
-        Notify(tostring(message or ("Memasuki " .. name .. "...")))
-    else
-        Notify(tostring(message or "Tidak bisa masuk world itu."))
-    end
-end
-
-----------------------------------------------------------------------
--- POS1 / POS2 + WIN1 / WIN2  (teleport dalam world lewat world.goTo)
-----------------------------------------------------------------------
-local function SetPos(slot)
-    local tx, ty = GetTile()
-    if not tx then
-        Notify("Posisi tidak terdeteksi!")
-        return
-    end
-    Config["pos" .. slot] = { world = CurrentWorldName(), x = tx, y = ty }
-    SaveConfig()
-    Notify(string.format("Pos %d disimpan: %d, %d", slot, tx, ty))
-end
-
-local function GoToPos(slot, amount)
-    local pos = Config["pos" .. slot]
-    if type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number" then
-        Notify("Pos " .. slot .. " belum diset! Ketik " .. Config.prefix .. "pos" .. slot)
-        return
-    end
-
-    local world = FindWorld()
-    if not world or type(world.goTo) ~= "function" then
-        Notify("Fungsi teleport game tidak ditemukan!")
-        return
-    end
-
-    local current = CurrentWorldName()
-    if type(pos.world) == "string" and pos.world ~= "" and current ~= pos.world then
-        Notify(string.format("Pos %d disimpan di world %s (kamu di %s)", slot, pos.world, current))
-        return
-    end
-
-    local ok, err
-    if Nav and Nav.Tele then
-        ok, err = Nav.Tele(pos.x, pos.y)
-        if not ok and err ~= "cancel" then
-            -- cadangan: lompat langsung
-            ok, err = pcall(world.goTo, pos.x, pos.y)
-        end
-    else
-        ok, err = pcall(world.goTo, pos.x, pos.y)
-    end
-    if not ok then
-        Notify("Teleport gagal!")
-        warn(err)
-        return
-    end
-    Notify(string.format("Pindah ke Pos %d (%d, %d)", slot, pos.x, pos.y))
-
-    local dropAmount = amount
-    if not dropAmount and Config.winDrop > 0 then
-        dropAmount = Config.winDrop
-    end
-    if dropAmount then
-        task.wait(0.4) -- tunggu posisi game ter-update
-        DropWorldLock(dropAmount)
-    end
-end
-
-local function ShowPos()
-    local tx, ty = GetTile()
-    local parts = {}
-    table.insert(parts, tx and string.format("Sekarang: %d, %d (%s)", tx, ty, CurrentWorldName()) or "Posisi tidak terdeteksi")
-    for slot = 1, 2 do
-        local pos = Config["pos" .. slot]
-        if type(pos) == "table" and type(pos.x) == "number" then
-            table.insert(parts, string.format("Pos%d: %d, %d", slot, pos.x, pos.y))
-        else
-            table.insert(parts, "Pos" .. slot .. ": -")
-        end
-    end
-    Notify(table.concat(parts, " | "))
-end
-
-----------------------------------------------------------------------
--- REJOIN (masuk ulang ke world yang sama)
-----------------------------------------------------------------------
-local function Rejoin()
-    local name = CurrentWorldName()
-    if name == "" then
-        name = Config.lastWorld
-    end
-    SaveConfig()
-    if QueueReload then
-        pcall(QueueReload)
-    end
-    -- Game membaca teleport data { world = "NAMA" } saat tiba di server baru
-    local data = (name ~= "") and { world = name } or nil
-    Notify(name ~= "" and ("Rejoin world " .. name .. "...") or "Rejoin...")
-    local ok, err = pcall(function()
-        TeleportService:Teleport(game.PlaceId, Player, data)
-    end)
-    if not ok then
-        Notify("Rejoin gagal!")
-        warn(err)
-    end
-end
-
-----------------------------------------------------------------------
--- BLINK SKIN (warna skin ganti otomatis)
-----------------------------------------------------------------------
-local blinkOn = false
-local blinkOriginal = {}
-
-local function CollectSkinParts()
-    local list = {}
-    local rigs = FindRigs()
-    if not rigs then
-        return list
-    end
-
-    for _, key in ipairs({ 1, -1, 0 }) do
-        local rig = rawget(rigs, key)
-        if type(rig) == "table" then
-            for _, field in ipairs({ "body", "head", "eyelids", "blink", "forearm", "fist" }) do
-                local part = rig[field]
-                if typeof(part) == "Instance" then
-                    table.insert(list, { part = part, face = false })
-                end
-            end
-            for _, field in ipairs({ "armBack", "armFront" }) do
-                local arm = rig[field]
-                local sprite
-                if typeof(arm) == "Instance" then
-                    sprite = arm:FindFirstChild("Sprite")
-                elseif type(arm) == "table" then
-                    sprite = arm.Sprite
-                end
-                if typeof(sprite) == "Instance" then
-                    table.insert(list, { part = sprite, face = false })
-                end
-            end
-            if typeof(rig.face) == "Instance" then
-                table.insert(list, { part = rig.face, face = true })
-            end
-        end
-    end
-    return list
-end
-
-local function StopBlink()
-    if not blinkOn then
-        return false
-    end
-    blinkOn = false
-    for part, color in pairs(blinkOriginal) do
-        pcall(function()
-            part.ImageColor3 = color
-        end)
-    end
-    table.clear(blinkOriginal)
-    return true
-end
-
-local function StartBlink()
-    if blinkOn then
-        return true
-    end
-    if not FindRigs() then
-        Notify("Rig karakter tidak ditemukan!")
-        return false
-    end
-
-    blinkOn = true
-    table.clear(blinkOriginal)
-    for _, entry in ipairs(CollectSkinParts()) do
-        blinkOriginal[entry.part] = entry.part.ImageColor3
-    end
-
-    task.spawn(function()
-        while blinkOn do
-            local color = Color3.fromHSV(math.random(), 0.55 + math.random() * 0.4, 1)
-            local dark = Color3.new(color.R * 0.38, color.G * 0.35, color.B * 0.3)
-            for _, entry in ipairs(CollectSkinParts()) do
-                if blinkOriginal[entry.part] == nil then
-                    blinkOriginal[entry.part] = entry.part.ImageColor3
-                end
-                pcall(function()
-                    entry.part.ImageColor3 = entry.face and dark or color
-                end)
-            end
-            local minT = math.min(Config.blinkMin, Config.blinkMax)
-            local maxT = math.max(Config.blinkMin, Config.blinkMax)
-            task.wait(minT + math.random() * (maxT - minT))
-        end
-    end)
-    return true
-end
-
-----------------------------------------------------------------------
--- LONGHAND (jangkauan punch & build lebih jauh)
-----------------------------------------------------------------------
-local longhandOn = false
-local longhandOriginal = nil
-
-local function ApplyLonghand()
-    local inv = FindInventory()
-    if not inv then
-        Notify("Inventory game tidak ditemukan!")
-        return false
-    end
-
-    if not longhandOriginal then
-        longhandOriginal = { build = inv.buildRange, punch = inv.punchRange }
-    end
-
-    -- Game: range = reach/build item terbaik + 2.5
-    local target = 2.5 + Config.longhandRange
-    inv.buildRange = function()
-        return math.max(longhandOriginal.build(), target)
-    end
-    inv.punchRange = function()
-        return math.max(longhandOriginal.punch(), target)
-    end
-    longhandOn = true
-    return true
-end
-
-local function StopLonghand()
-    if not longhandOn then
-        return false
-    end
-    local inv = FindInventory()
-    if inv and longhandOriginal then
-        inv.buildRange = longhandOriginal.build
-        inv.punchRange = longhandOriginal.punch
-    end
-    longhandOn = false
-    return true
-end
-
-----------------------------------------------------------------------
--- NOCLIP (memakai mode "ghost" bawaan game: tembus blok + terbang)
--- Naik = tombol lompat, turun = panah bawah / S.
--- Selama aktif: tidak bisa ambil drop / sentuh blok (aturan mode ghost game).
-----------------------------------------------------------------------
-local noclipOn = false
-local noclipConn = nil
-
-local function StopNoclip()
-    if not noclipOn then
-        return false
-    end
-    noclipOn = false
-    if noclipConn then
-        noclipConn:Disconnect()
-        noclipConn = nil
-    end
-    local world = FindWorld()
-    if world then
-        world.ghost = (Player:GetAttribute("Ghost") == true)
-    end
-    return true
-end
-
-local function StartNoclip()
-    if noclipOn then
-        return true
-    end
-    local world = FindWorld()
-    if not world then
-        Notify("World game tidak ditemukan!")
-        return false
-    end
-    noclipOn = true
-    world.ghost = true
-    noclipConn = RunService.Heartbeat:Connect(function()
-        local w = FindWorld()
-        if w and w.ghost ~= true then
-            w.ghost = true -- game bisa mereset lewat atribut "Ghost"
-        end
-    end)
-    return true
-end
-
-----------------------------------------------------------------------
--- UNLIMITED JUMP
--- Game: lompat udara hanya jika memakai item doubleJump dan flag "sudah
--- lompat udara" (upvalue di RenderStepped) belum terpakai. Flag itu di-reset
--- tiap frame. Kalau tidak memakai sayap, fungsi cek sayap dibungkus supaya
--- tetap dianggap punya item doubleJump (tanpa tampilan sayap).
-----------------------------------------------------------------------
-local ujumpOn = false
-local ujumpConn = nil
-local ujumpFn = nil
-local ujumpWingsOriginal = nil
-local JUMP_FLAG_INDEX = 27 -- upvalue "airJumpUsed" pada closure RenderStepped
-local WINGS_INDEX = 29     -- upvalue fungsi wornWings
-
-local function FindRenderFn()
-    if ujumpFn then
-        return ujumpFn
-    end
-    if not getconnections then
-        return nil
-    end
-    local world, inv = FindWorld(), FindInventory()
-    if not world or not inv then
-        return nil
-    end
-    local ok, conns = pcall(getconnections, RunService.RenderStepped)
-    if not ok then
-        return nil
-    end
-    for _, conn in ipairs(conns) do
-        local okFn, fn = pcall(function()
-            return conn.Function
-        end)
-        if okFn and type(fn) == "function" then
-            local ups = GetUpvalues(fn)
-            if ups[1] == world and ups[2] == inv then
-                ujumpFn = fn
-                return fn
-            end
-        end
-    end
-    return nil
-end
-
-local function FindFallbackWing()
-    local db = GetItemDB()
-    if not db then
-        return nil
-    end
-    local best, bestPlain = nil, nil
-    for id, item in pairs(db) do
-        if type(id) == "number" and type(item) == "table" and item.doubleJump == true then
-            if not item.wingSheet and (not bestPlain or id < bestPlain) then
-                bestPlain = id
-            end
-            if not best or id < best then
-                best = id
-            end
-        end
-    end
-    return bestPlain or best
-end
-
-local function StopUjump()
-    if not ujumpOn then
-        return false
-    end
-    ujumpOn = false
-    if ujumpConn then
-        ujumpConn:Disconnect()
-        ujumpConn = nil
-    end
-    if ujumpFn and ujumpWingsOriginal and setupvalueFn then
-        pcall(setupvalueFn, ujumpFn, WINGS_INDEX, ujumpWingsOriginal)
-    end
-    ujumpWingsOriginal = nil
-    return true
-end
-
-local function StartUjump()
-    if ujumpOn then
-        return true
-    end
-    if not setupvalueFn then
-        Notify("Executor perlu debug.setupvalue!")
-        return false
-    end
-    local fn = FindRenderFn()
-    if not fn then
-        Notify("Fungsi gerak game tidak ditemukan (perlu getconnections)")
-        return false
-    end
-
-    local ups = GetUpvalues(fn)
-    if type(ups[JUMP_FLAG_INDEX]) ~= "boolean" or type(ups[WINGS_INDEX]) ~= "function" then
-        Notify("Struktur game berubah, unlimited jump tidak bisa dipasang.")
-        return false
-    end
-
-    local original = ups[WINGS_INDEX]
-    local fallback = FindFallbackWing()
-    if fallback then
-        ujumpWingsOriginal = original
-        pcall(setupvalueFn, fn, WINGS_INDEX, function()
-            return original() or fallback
-        end)
-    end
-
-    ujumpOn = true
-    ujumpConn = RunService.Heartbeat:Connect(function()
-        pcall(setupvalueFn, fn, JUMP_FLAG_INDEX, false)
-    end)
-    return true
-end
-
-----------------------------------------------------------------------
--- VISUAL ITEM (hanya tampilan lokal)
-----------------------------------------------------------------------
-local visualBackup = {} -- slot -> id asli (atau false kalau kosong)
-
-local function IsVisualWorn(id)
-    local worn = GetWorn()
-    local db = GetItemDB()
-    if not worn or not db or not db[id] then
-        return false
-    end
-    return worn[db[id].slot] == id
-end
-
-local function ToggleVisual(id)
-    local inv, worn, db = FindInventory(), GetWorn(), GetItemDB()
-    if not inv or not worn or not db or not db[id] then
-        Notify("Item/inventory game tidak ditemukan!")
-        return false
-    end
-
-    local slot = db[id].slot
-    if type(slot) ~= "string" then
-        return false
-    end
-
-    if worn[slot] == id then
-        worn[slot] = visualBackup[slot] or nil
-    else
-        if visualBackup[slot] == nil then
-            visualBackup[slot] = worn[slot] or false
-        end
-        worn[slot] = id
-    end
-
-    pcall(inv.refresh)
-    return true
-end
-
-local function ResetVisuals()
-    local inv, worn = FindInventory(), GetWorn()
-    if not inv or not worn then
-        return
-    end
-    for slot, original in pairs(visualBackup) do
-        worn[slot] = original or nil
-    end
-    table.clear(visualBackup)
-    pcall(inv.refresh)
-    Notify("Item visual dikembalikan.")
-end
-
-local wearableCache = nil
-local function GetWearables()
-    if wearableCache then
-        return wearableCache
-    end
-    local db = GetItemDB()
-    if not db then
-        return nil
-    end
-
-    local list = {}
-    for id, item in pairs(db) do
-        if type(id) == "number" and type(item) == "table"
-            and type(item.slot) == "string" and type(item.name) == "string" then
-            local tags = {}
-            local lower = item.name:lower()
-            if item.kuyang then
-                table.insert(tags, "Kuyang")
-            end
-            if item.bot then
-                table.insert(tags, "LegendBot")
-            end
-            if id == 5480 or lower:find("rayman", 1, true) then
-                table.insert(tags, "Rayman")
-            end
-            table.insert(list, { id = id, name = item.name, lower = lower, slot = item.slot, tags = tags })
-        end
-    end
-    table.sort(list, function(a, b)
-        if a.name == b.name then
-            return a.id < b.id
-        end
-        return a.name < b.name
-    end)
-    wearableCache = list
-    return list
-end
-
-----------------------------------------------------------------------
--- FEATURE SETTERS (dipakai GUI & command)
-----------------------------------------------------------------------
--- ANTI AFK
-local antiAfkOn = false
-local antiAfkConn = nil
-
-local function StopAntiAfk()
-    if not antiAfkOn then
-        return false
-    end
-    antiAfkOn = false
-    if antiAfkConn then
-        antiAfkConn:Disconnect()
-        antiAfkConn = nil
-    end
-    return true
-end
-
-local function StartAntiAfk()
-    if antiAfkOn then
-        return true
-    end
-    local okVU, VirtualUser = pcall(function()
-        return game:GetService("VirtualUser")
-    end)
-    if not okVU or not VirtualUser then
-        Notify("VirtualUser tidak tersedia di executor ini.")
-        return false
-    end
-    antiAfkOn = true
-    antiAfkConn = Player.Idled:Connect(function()
-        pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new())
-        end)
-    end)
-    return true
-end
-
--- AUTO REJOIN (saat muncul layar error / disconnect)
-local arjOn = false
-local arjConn = nil
-
-local function StopAutoRejoin()
-    if not arjOn then
-        return false
-    end
-    arjOn = false
-    if arjConn then
-        arjConn:Disconnect()
-        arjConn = nil
-    end
-    return true
-end
-
-local function StartAutoRejoin()
-    if arjOn then
-        return true
-    end
-    local ok, overlay = pcall(function()
-        local gui = game:GetService("CoreGui"):WaitForChild("RobloxPromptGui", 5)
-        return gui and gui:WaitForChild("promptOverlay", 5)
-    end)
-    if not ok or not overlay then
-        Notify("Auto rejoin tidak didukung executor ini.")
-        return false
-    end
-    arjOn = true
-    arjConn = overlay.ChildAdded:Connect(function(child)
-        if child.Name == "ErrorPrompt" and arjOn then
-            Notify("Terputus! Rejoin dalam 3 detik...")
-            task.wait(3)
-            Rejoin()
-        end
-    end)
-    return true
-end
-
-local RefreshHub -- didefinisikan di bagian GUI
-
-local SearchItems, ItemName, StartFarm, StopFarm, StartQuest, StopQuest, QuestReport, StartGod, StopGod, OpenNativeGrowScan, ScanWorld
-local farmOn, questOn, godOn = false, false, false
-Nav = { clickOn = false, token = 0, conn = nil, last = "-" }
-local Clear = { on = false, token = 0, status = "Mati", stats = { scanned = 0, broken = 0, picked = 0, skipped = 0, left = 0, pass = 0 } }
-local BreakId = { on = false, token = 0, status = "Mati", stats = { found = 0, broken = 0, picked = 0, skipped = 0, left = 0 } }
-local DirtFarm = { on = false, token = 0, status = "Mati", stats = { rows = 0, broken = 0, picked = 0, placed = 0, skipped = 0 } }
-local questStatus = "Mati"
-local farmStats = { status = "Mati", placed = 0, broken = 0, picked = 0, cycles = 0 }
-do
-----------------------------------------------------------------------
--- DATABASE ITEM (diambil langsung dari ItemDB game) + PENCARIAN
--- Cari pakai nama (sebagian) atau ID. Hasil diurutkan dari yang paling cocok.
-----------------------------------------------------------------------
-local blockListCache = nil
-
-local function GetBlockList()
-    if blockListCache then
-        return blockListCache
-    end
-    local db = GetItemDB()
-    if not db then
-        return nil
-    end
-    local list = {}
-    for id, item in pairs(db) do
-        if type(id) == "number" and type(item) == "table" and type(item.name) == "string"
-            and type(item.slot) ~= "string" then
-            table.insert(list, {
-                id = id,
-                name = item.name,
-                lower = item.name:lower(),
-                kind = type(item.kind) == "string" and item.kind or "block",
-            })
-        end
-    end
-    table.sort(list, function(a, b)
-        if a.name == b.name then
-            return a.id < b.id
-        end
-        return a.name < b.name
-    end)
-    blockListCache = list
-    return list
-end
-
-function ItemName(id)
-    local db = GetItemDB()
-    local item = db and db[id]
-    if type(item) == "table" and type(item.name) == "string" then
-        return item.name
-    end
-    return "?"
-end
-
-function SearchItems(query, limit)
-    local list = GetBlockList()
-    local results = {}
-    query = Trim(query):lower()
-    if not list or query == "" then
-        return {}
-    end
-    local wantId = tonumber(query)
-    for _, entry in ipairs(list) do
-        local rank = nil
-        if wantId and entry.id == wantId then
-            rank = 0
-        elseif entry.lower == query then
-            rank = 1
-        elseif entry.lower:sub(1, #query) == query then
-            rank = 2
-        elseif entry.lower:find(query, 1, true) then
-            rank = 3
-        end
-        if rank then
-            table.insert(results, { entry = entry, rank = rank })
-        end
-    end
-    table.sort(results, function(a, b)
-        if a.rank ~= b.rank then
-            return a.rank < b.rank
-        end
-        if a.entry.name ~= b.entry.name then
-            return a.entry.name < b.entry.name
-        end
-        return a.entry.id < b.entry.id
-    end)
+local function mapList(list, back)
     local out = {}
-    for i = 1, math.min(limit or 25, #results) do
-        out[i] = results[i].entry
+    for i, val in ipairs(list) do
+        local tr = I18N.V(val)
+        out[i] = tr
+        if type(tr) == "string" then back[tr] = val end
     end
     return out
 end
 
-----------------------------------------------------------------------
--- AKSES FUNGSI GAME: hit (pukulan), setTile (place), backpack
--- Dicari lewat getgc: fungsi bernama "hit"/"setTile" yang memegang tabel world.
-----------------------------------------------------------------------
-local gameFns = {}
+function I18N.wrap(obj)
+    if I18N.Lang ~= "en" or type(obj) ~= "table" then return obj end
+    return setmetatable({}, {
+        __index = function(_, k)
+            local v = obj[k]
+            if type(v) ~= "function" then return v end
+            return function(_, cfg, ...)
+                local back
+                if k == "Dropdown" and type(cfg) == "table" then
+                    back = {}
+                    if type(cfg.Values) == "table" then cfg.Values = mapList(cfg.Values, back) end
+                    if type(cfg.Value) == "string" then
+                        cfg.Value = I18N.V(cfg.Value)
+                    elseif type(cfg.Value) == "table" then
+                        cfg.Value = mapList(cfg.Value, back)
+                    end
+                    local cb = cfg.Callback
+                    if cb then
+                        -- tampil dalam English, callback tetap terima teks asli
+                        cfg.Callback = function(opt, ...)
+                            if type(opt) == "string" then
+                                opt = back[opt] or opt
+                            elseif type(opt) == "table" then
+                                local o2 = {}
+                                for i, x in ipairs(opt) do o2[i] = back[x] or x end
+                                opt = o2
+                            end
+                            return cb(opt, ...)
+                        end
+                    end
+                elseif (k == "Refresh" or k == "Select") and I18N.Backs[obj] then
+                    local b = I18N.Backs[obj]
+                    if type(cfg) == "table" then
+                        cfg = mapList(cfg, b)
+                    elseif type(cfg) == "string" then
+                        cfg = I18N.V(cfg)
+                    end
+                end
+                if type(cfg) == "table" and k ~= "Refresh" and k ~= "Select" and cfg[1] == nil then
+                    for _, f in ipairs({ "Title", "Desc", "Placeholder", "Content" }) do
+                        if type(cfg[f]) == "string" then cfg[f] = I18N.T(cfg[f]) end
+                    end
+                elseif type(cfg) == "string" and (k == "SetDesc" or k == "SetTitle") then
+                    cfg = I18N.T(cfg)
+                end
+                local r = v(obj, cfg, ...)
+                if back and type(r) == "table" then I18N.Backs[r] = back end
+                if type(r) == "table" and r ~= obj then return I18N.wrap(r) end
+                return r
+            end
+        end,
+    })
+end
+end)() end
 
-local function FindGameFn(name)
-    local cached = gameFns[name]
-    if cached then
-        return cached
-    end
-    local world = FindWorld()
-    if not world or not getgcFn or not (debug and debug.info) then
+local function notify(title, content, dur)
+    task.defer(function()
+        pcall(function()
+            WindUI:Notify({ Title = I18N.T(title), Content = I18N.T(content), Duration = dur or 3, Icon = "info" })
+        end)
+    end)
+end
+
+---------------------------------------------------------------------
+-- CONFIG: simpan & muat pengaturan otomatis
+---------------------------------------------------------------------
+-- Cara kerja:
+--   1. Saat execute, file config dibaca lalu nilainya dipasang ke pengaturan
+--      SEBELUM UI dibuat, jadi tombol & slider langsung tampil sesuai config.
+--   2. Tiap 3 detik pengaturan sekarang dibandingkan dengan yang terakhir disimpan.
+--      Ada yang berubah -> langsung disimpan (auto save).
+--   3. File per akun: workspace/Alfian/config_<UserId>.json
+--   Yang tidak disimpan: tombol jalan (Auto Farm / Clear / Farmer / Chat), fly & inf jump.
+local Config = {
+    AutoSave = true,
+    Paused = false,      -- true setelah reset (supaya file tidak dibuat lagi)
+    Folder = "Alfian",
+    Data = {},           -- isi file saat execute
+    List = {},           -- tabel pengaturan yang disimpan
+    LastJson = nil,
+    Status = "-",
+}
+
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local HttpService = game:GetService("HttpService")
+    local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+    Config.CanFile = canFile
+    Config.Path = Config.Folder .. "/config_" .. tostring(LocalPlayer.UserId) .. ".json"
+
+    local function read()
+        if not canFile then return nil end
+        local okE, exists = pcall(isfile, Config.Path)
+        if not okE or not exists then return nil end
+        local okR, raw = pcall(readfile, Config.Path)
+        if not okR or type(raw) ~= "string" then return nil end
+        local okD, data = pcall(HttpService.JSONDecode, HttpService, raw)
+        if okD and type(data) == "table" then return data end
         return nil
     end
-    for _, fn in ipairs(getgcFn(true)) do
-        if type(fn) == "function" then
-            local okName, fnName = pcall(debug.info, fn, "n")
-            if okName and fnName == name then
-                for _, value in pairs(GetUpvalues(fn)) do
-                    if value == world then
-                        gameFns[name] = fn
-                        return fn
+
+    local loaded = read()
+    Config.Found = loaded ~= nil
+    Config.Data = loaded or {}
+    if Config.Data.AutoSave == false then Config.AutoSave = false end
+    Config.Status = Config.Found and "Config dimuat" or (canFile and "Belum ada config" or "Executor tidak bisa simpan file")
+
+    -- Daftarkan tabel pengaturan. Nilai dari file langsung dipasang
+    -- (kecuali key di 'later', dipasang sendiri setelah terhubung ke game).
+    function Config.add(name, tbl, keys, later)
+        table.insert(Config.List, { name = name, tbl = tbl, keys = keys })
+        local saved = Config.Data[name]
+        if type(saved) ~= "table" then return end
+        for _, k in ipairs(keys) do
+            local v, cur = saved[k], tbl[k]
+            if v ~= nil and not (later and later[k]) and (cur == nil or type(v) == type(cur)) then
+                tbl[k] = v
+            end
+        end
+    end
+
+    function Config.saved(name, key)
+        local t = Config.Data[name]
+        return type(t) == "table" and t[key] or nil
+    end
+
+    local function collect()
+        local out = { AutoSave = Config.AutoSave, Version = 1 }
+        for _, e in ipairs(Config.List) do
+            local t = {}
+            for _, k in ipairs(e.keys) do t[k] = e.tbl[k] end
+            out[e.name] = t
+        end
+        return out
+    end
+
+    function Config.save(force)
+        if not canFile then
+            Config.Status = "Executor tidak bisa simpan file"
+            return false
+        end
+        if Config.Paused and not force then return false end
+        local okJ, json = pcall(HttpService.JSONEncode, HttpService, collect())
+        if not okJ then
+            Config.Status = "Gagal membaca pengaturan"
+            return false
+        end
+        if not force and json == Config.LastJson then return true end
+        if type(isfolder) == "function" and type(makefolder) == "function" then
+            local okF, has = pcall(isfolder, Config.Folder)
+            if okF and not has then pcall(makefolder, Config.Folder) end
+        end
+        local ok = pcall(writefile, Config.Path, json)
+        if ok then
+            Config.LastJson = json
+            Config.Paused = false
+            Config.Status = "Tersimpan " .. os.date("%H:%M:%S")
+        else
+            Config.Status = "Gagal simpan file"
+        end
+        return ok
+    end
+
+    -- Hapus file config (execute ulang = kembali ke default)
+    function Config.reset()
+        Config.Paused = true
+        Config.LastJson = nil
+        if canFile and type(delfile) == "function" then
+            local ok = pcall(delfile, Config.Path)
+            Config.Status = ok and "Config dihapus. Execute ulang untuk default" or "Gagal hapus file"
+            return ok
+        end
+        Config.Status = "Executor tidak bisa hapus file"
+        return false
+    end
+
+    function Config.start()
+        -- tandai kondisi sekarang sebagai "sudah tersimpan" kalau sama dengan file
+        if Config.Found then
+            local okJ, json = pcall(HttpService.JSONEncode, HttpService, collect())
+            if okJ then Config.LastJson = json end
+        end
+        task.spawn(function()
+            while alive() do
+                task.wait(3)
+                if Config.AutoSave and alive() then Config.save(false) end
+            end
+        end)
+    end
+end)() end
+
+Config.add("Farm", State, {
+    "Mode", "PlaceMs", "BreakMs", "AfterBreakMs", "HitsOverride", "SelectedId", "Offsets",
+    "CalibX", "CalibY", "AntiAfk", "MutePunch", "LiteMode", "AutoCollect", "MultiTarget",
+    "CollectAround", "CollectRadius",
+})
+Config.add("Clear", Clear, { "UseBlock", "ScaffoldId", "Collect", "Sweep" })
+Config.add("Farmer", Farmer, { "Harvest", "Plant", "Collect", "UseBlock", "ScaffoldId", "HarvestMs", "PlantMs", "SeedId" })
+-- update 1084: game memberi jeda minimal antar aksi (place ~0.135 dtk, pukul ~0.19 dtk)
+State.PlaceMs = math.max(State.PlaceMs, 140)
+State.BreakMs = math.max(State.BreakMs, 200)
+Farmer.HarvestMs = math.max(Farmer.HarvestMs, 140)
+Farmer.PlantMs = math.max(Farmer.PlantMs, 140)
+Config.add("Misc", Misc, { "Speed" })
+Config.add("Chat", Spam, { "Texts", "IntervalSec" })
+Config.add("Lahan", Land, { "X0", "X1", "Y0", "Gap", "Rows", "Stairs" })
+Config.add("Bangun", Build, { "BlockId", "UseBlock", "Produce", "ThenPabrik" })
+Config.add("Pabrik", Pabrik, {
+    "SeedId", "WholeWorld", "Tiles", "BreakX", "BreakY", "BreakSec",
+    "Drop", "Keep", "DropAt", "DropWorld", "DropX", "DropY",
+})
+Config.add("Bahasa", I18N, { "Saved", "Ask" })
+I18N.Lang = (I18N.Saved == "en") and "en" or "id"
+
+---------------------------------------------------------------------
+-- STATISTIK SESI & NOTIFIKASI DISCORD (data; tampilan ada di tab Statistik / Discord)
+---------------------------------------------------------------------
+local Stats = { T0 = os.clock(), Gems0 = nil, Items = {}, Base = {} }
+
+-- Cara kerja webhook:
+--   Hook.send(jenis, teks) memasukkan pesan ke antrian.
+--   Antrian dikirim satu per satu tiap 2.5 detik (supaya tidak kena batas Discord).
+local Hook = {
+    On = false,
+    Url = "",
+    Penjaga = true,   -- mod / dev / pemain masuk world
+    Stop = true,      -- aktivitas berhenti (block habis, error)
+    Full = true,      -- inventori penuh
+    Bonus = true,     -- quest diklaim / redeem berhasil
+    Rejoin = true,    -- terlempar / masuk lagi
+    Pabrik = true,    -- pabrik drop / lahan selesai / berhenti
+    ReportMin = 0,    -- laporan statistik tiap X menit (0 = mati)
+    Queue = {},
+    LastFull = {},
+    Status = "-",
+}
+
+do (function()
+    local HttpService = game:GetService("HttpService")
+
+    local function requester()
+        return (syn and syn.request) or (http and http.request) or http_request or request
+            or (fluxus and fluxus.request)
+    end
+
+    function Hook.valid(url)
+        url = tostring(url or "")
+        for _, host in ipairs({ "discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com" }) do
+            if string.sub(url, 1, #host + 22) == "https://" .. host .. "/api/webhooks/" then return true end
+        end
+        return false
+    end
+
+    -- jenis: "penjaga" | "stop" | "full" | "bonus" | "rejoin" | "report" | "test"
+    function Hook.send(kind, text)
+        if not Hook.On or not Hook.valid(Hook.Url) then return end
+        local allow = kind == "test" or kind == "report"
+            or (kind == "penjaga" and Hook.Penjaga) or (kind == "stop" and Hook.Stop)
+            or (kind == "full" and Hook.Full) or (kind == "bonus" and Hook.Bonus)
+            or (kind == "rejoin" and Hook.Rejoin) or (kind == "pabrik" and Hook.Pabrik)
+        if not allow or #Hook.Queue >= 20 then return end
+        table.insert(Hook.Queue, I18N.T(tostring(text)))
+    end
+
+    task.spawn(function()
+        while alive() do
+            local text = table.remove(Hook.Queue, 1)
+            if not text then
+                task.wait(0.5)
+            else
+                local req = requester()
+                if not req then
+                    Hook.Status = "Executor tidak punya fungsi request"
+                else
+                    local body = HttpService:JSONEncode({
+                        username = "Fian792",
+                        content = ("**[%s]** %s"):format(LocalPlayer.Name, text),
+                    })
+                    local ok, res = pcall(req, {
+                        Url = Hook.Url, Method = "POST",
+                        Headers = { ["Content-Type"] = "application/json" }, Body = body,
+                    })
+                    local code = ok and type(res) == "table" and tonumber(res.StatusCode or res.Status) or nil
+                    if ok and (code == nil or code < 300) then
+                        Hook.Status = "Terkirim " .. os.date("%H:%M:%S")
+                    else
+                        Hook.Status = "Gagal kirim (" .. tostring(code or res) .. ")"
+                    end
+                end
+                task.wait(2.5)
+            end
+        end
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- CARI DATA & FUNGSI GAME (getgc)
+---------------------------------------------------------------------
+local getconsts = (debug and debug.getconstants) or getconstants
+
+-- Fungsi place game: satu-satunya yang memakai "placedAt" + "flips" sekaligus.
+-- Kirimnya "tile" (game baru, ByteNet) atau "SetTile" (game lama).
+local function isSetTileFn(fn)
+    if not getconsts then return false end
+    if islclosure and not islclosure(fn) then return false end
+    local ok, consts = pcall(getconsts, fn)
+    if not ok or type(consts) ~= "table" then return false end
+    local hasSend, hasPlaced, hasFlips = false, false, false
+    for _, c in pairs(consts) do
+        if c == "tile" or c == "SetTile" then hasSend = true
+        elseif c == "placedAt" then hasPlaced = true
+        elseif c == "flips" then hasFlips = true end
+    end
+    return hasSend and hasPlaced and hasFlips
+end
+
+-- Fungsi pukul game: teks "Empty the Vending Machine first!" + "newCrack"
+-- (game lama: "HarvestProvider")
+local function isPunchFn(fn)
+    if not getconsts then return false end
+    if islclosure and not islclosure(fn) then return false end
+    local ok, consts = pcall(getconsts, fn)
+    if not ok or type(consts) ~= "table" then return false end
+    local hasVend, hasMark = false, false
+    for _, c in pairs(consts) do
+        if c == "Empty the Vending Machine first!" then hasVend = true
+        elseif c == "newCrack" or c == "HarvestProvider" then hasMark = true end
+    end
+    return hasVend and hasMark
+end
+
+local function isStateHolder(v)
+    local fn = rawget(v, "state")
+    if type(fn) ~= "function" then return false end
+    local ok, s = pcall(fn)
+    return ok and type(s) == "table" and type(s.x) == "number" and type(s.y) == "number"
+        and s.facing ~= nil and s.vx ~= nil
+end
+
+-- Pastikan fungsi milik game, bukan milik script ini
+local function isGameFn(fn)
+    if fn == isSetTileFn or fn == isPunchFn then return false end
+    if isexecutorclosure then
+        local ok, res = pcall(isexecutorclosure, fn)
+        if ok and res then return false end
+    end
+    local ok, src = pcall(debug.info, fn, "s")
+    if ok and type(src) == "string" and src ~= "" and not string.find(src, "GameGui", 1, true) then
+        return false
+    end
+    return true
+end
+
+local function findRefs()
+    Refs.World, Refs.Inv, Refs.SetTile, Refs.State, Refs.Punch, Refs.Menu = nil, nil, nil, nil, nil, nil
+    Refs.Gems = nil
+    Refs.Hud = nil
+    Refs.Others = nil
+    Refs.Particles = {}
+    if not getgc then
+        return false, "Executor tidak punya getgc()"
+    end
+    for _, v in ipairs(getgc(true)) do
+        local tv = type(v)
+        if tv == "table" then
+            if not Refs.World then
+                local ok, isWorld = pcall(function()
+                    return type(rawget(v, "fg")) == "table" and type(rawget(v, "bg")) == "table"
+                        and type(rawget(v, "w")) == "number" and type(rawget(v, "h")) == "number"
+                        and rawget(v, "spawn") ~= nil
+                end)
+                if ok and isWorld then Refs.World = v end
+            end
+            if not Refs.Inv then
+                local ok, isInv = pcall(function()
+                    return getmetatable(v) == InventoryModule and type(rawget(v, "slots")) == "table"
+                        and rawget(v, "capacity") ~= nil
+                end)
+                if ok and isInv then Refs.Inv = v end
+            end
+            if not Refs.State then
+                local ok, isHolder = pcall(isStateHolder, v)
+                if ok and isHolder then Refs.State = rawget(v, "state") end
+            end
+            if not Refs.Menu then
+                local ok, isMenu = pcall(function()
+                    return type(rawget(v, "openBackpack")) == "function" and type(rawget(v, "ui")) == "table"
+                end)
+                if ok and isMenu then Refs.Menu = v end
+            end
+            if not Refs.Gems then
+                local ok, isG = pcall(function() return type(rawget(v, "addGems")) == "function" end)
+                if ok and isG then Refs.Gems = v end
+            end
+            if not Refs.Hud then
+                local ok, isH = pcall(function()
+                    return type(rawget(v, "punchRange")) == "function" and type(rawget(v, "handPower")) == "function"
+                end)
+                if ok and isH then Refs.Hud = v end
+            end
+            if not Refs.Others then
+                -- data pemain lain: punya list(), where(), playerAt()
+                local ok, isO = pcall(function()
+                    return type(rawget(v, "list")) == "function" and type(rawget(v, "where")) == "function"
+                        and type(rawget(v, "playerAt")) == "function"
+                end)
+                if ok and isO then Refs.Others = v end
+            end
+            if ParticlesOk then
+                local ok, isP = pcall(function()
+                    return getmetatable(v) == ParticlesModule and type(rawget(v, "live")) == "table"
+                        and type(rawget(v, "free")) == "table"
+                end)
+                if ok and isP then table.insert(Refs.Particles, v) end
+            end
+        elseif tv == "function" and (not Refs.SetTile or not Refs.Punch) and isGameFn(v) then
+            if not Refs.SetTile and isSetTileFn(v) then
+                Refs.SetTile = v
+            elseif not Refs.Punch and isPunchFn(v) then
+                Refs.Punch = v
+            end
+        end
+        if Refs.World and Refs.Inv and Refs.SetTile and Refs.State and Refs.Punch
+            and Refs.Menu and Refs.Gems and Refs.Hud and Refs.Others then break end
+    end
+    return Refs.World ~= nil
+end
+
+local function refsText()
+    return "World: " .. (Refs.World and "OK" or "TIDAK")
+        .. " | Inventori: " .. (Refs.Inv and "OK" or "TIDAK")
+        .. " | setTile: " .. (Refs.SetTile and "OK" or "cadangan")
+        .. " | Posisi: " .. (Refs.State and "OK" or "cadangan")
+        .. " | Pukul: " .. (Refs.Punch and "OK" or "TIDAK")
+        .. " | Drop: " .. (Drops.list and "OK" or "TIDAK")
+        .. " | Pohon: " .. (Refs.Trees and "OK" or "TIDAK")
+        .. " | Pemain: " .. (Refs.Others and "OK" or "TIDAK")
+end
+
+---------------------------------------------------------------------
+-- ITEM & INVENTORI
+---------------------------------------------------------------------
+local function itemName(id)
+    local it = ItemDB[id]
+    return (it and it.name) or ("Item #" .. tostring(id))
+end
+
+local function invCount(id)
+    if not Refs.Inv then return 0 end
+    local ok, n = pcall(function() return Refs.Inv:count(id) end)
+    return ok and n or 0
+end
+
+local function isPlaceable(id)
+    local it = ItemDB[id]
+    if not it then return false end
+    if it.kind == "tool" or it.kind == "cloth" or it.kind == "clothes" or it.kind == "consumable" then
+        return false
+    end
+    if it.lock or it.area then return false end
+    return true
+end
+
+local function placeableIds()
+    local ids = {}
+    if Refs.Inv then
+        for _, slot in ipairs(Refs.Inv.slots) do
+            if slot.id and (slot.n or 0) > 0 and isPlaceable(slot.id) then
+                ids[#ids + 1] = slot.id
+            end
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+local function inventoryLabels(ids)
+    local out = {}
+    for _, id in ipairs(ids or placeableIds()) do
+        out[#out + 1] = string.format("%s [%d]", itemName(id), id)
+    end
+    if #out == 0 then out = { "(inventori kosong / belum terbaca)" } end
+    return out
+end
+
+-- Dropdown cuma di-refresh kalau jenis item berubah (biar tidak lag)
+local lastInvSig = nil
+local invRefreshPending = false
+
+local lastSeedSig = nil
+local lastBlockSig = nil
+
+-- Seed di inventori (untuk Farmer)
+local function seedIds()
+    local ids = {}
+    if Refs.Inv then
+        for _, slot in ipairs(Refs.Inv.slots) do
+            local it = slot.id and ItemDB[slot.id]
+            if it and it.kind == "seed" and (slot.n or 0) > 0 then
+                ids[#ids + 1] = slot.id
+            end
+        end
+    end
+    table.sort(ids)
+    return ids
+end
+
+-- Setelah daftar di-refresh, pilih lagi item yang sedang dipakai (dari config / pilihan lama)
+local function selectSaved(dd, labels, id)
+    if not dd or not id then return end
+    local want = "[" .. tostring(id) .. "]"
+    for _, label in ipairs(labels) do
+        if string.sub(label, -#want) == want then
+            pcall(function() dd:Select(label) end)
+            return
+        end
+    end
+end
+
+local function doInvRefresh(force)
+    local ids = placeableIds()
+    local sig = table.concat(ids, ",")
+    if force or sig ~= lastInvSig then
+        lastInvSig = sig
+        local labels = inventoryLabels(ids)
+        pcall(function() UI.InvDropdown:Refresh(labels) end)
+        selectSaved(UI.InvDropdown, labels, State.SelectedId)
+    end
+    local sids = seedIds()
+    local ssig = table.concat(sids, ",")
+    if force or ssig ~= lastSeedSig then
+        lastSeedSig = ssig
+        local labels = {}
+        for _, id in ipairs(sids) do
+            labels[#labels + 1] = string.format("%s [%d]", itemName(id), id)
+        end
+        if #labels == 0 then labels = { "(tidak ada seed di inventori)" } end
+        pcall(function() UI.SeedDropdown:Refresh(labels) end)
+        selectSaved(UI.SeedDropdown, labels, Farmer.SeedId)
+        if UI.PabrikSeedDropdown then
+            pcall(function() UI.PabrikSeedDropdown:Refresh(labels) end)
+            selectSaved(UI.PabrikSeedDropdown, labels, Pabrik.SeedId)
+        end
+    end
+    -- block padat untuk pijakan
+    local bids = {}
+    for _, id in ipairs(ids) do
+        local it = ItemDB[id]
+        if it and it.solid and it.kind ~= "seed" then bids[#bids + 1] = id end
+    end
+    local bsig = table.concat(bids, ",")
+    if force or bsig ~= lastBlockSig then
+        lastBlockSig = bsig
+        local labels = {}
+        for _, id in ipairs(bids) do
+            labels[#labels + 1] = string.format("%s [%d]", itemName(id), id)
+        end
+        if #labels == 0 then labels = { "(tidak ada block padat di inventori)" } end
+        pcall(function() UI.ClearBlockDropdown:Refresh(labels) end)
+        pcall(function() UI.FarmerBlockDropdown:Refresh(labels) end)
+        selectSaved(UI.ClearBlockDropdown, labels, Clear.ScaffoldId)
+        selectSaved(UI.FarmerBlockDropdown, labels, Farmer.ScaffoldId)
+        if UI.BuildBlockDropdown then
+            pcall(function() UI.BuildBlockDropdown:Refresh(labels) end)
+            selectSaved(UI.BuildBlockDropdown, labels, Build.BlockId)
+        end
+    end
+    -- daftar Splice & Tas (dibuat di bagian bawah script)
+    if UI.SpliceRefresh then pcall(UI.SpliceRefresh, force) end
+    if UI.TrashRefresh then pcall(UI.TrashRefresh, force) end
+end
+
+local function refreshInvDropdown(force)
+    if force then
+        task.defer(function()
+            if alive() then doInvRefresh(true) end
+        end)
+        return
+    end
+    if invRefreshPending then return end
+    invRefreshPending = true
+    task.delay(1, function()
+        invRefreshPending = false
+        if alive() then doInvRefresh(false) end
+    end)
+end
+
+local invConn
+local function watchInventory()
+    if invConn then pcall(function() invConn:Disconnect() end) end
+    if Refs.Inv and typeof(Refs.Inv.changed) == "Instance" then
+        invConn = Refs.Inv.changed.Event:Connect(function()
+            if alive() then refreshInvDropdown(false) end
+        end)
+        table.insert(Connections, invConn)
+    end
+end
+
+---------------------------------------------------------------------
+-- WORLD: tile & posisi karakter
+---------------------------------------------------------------------
+local function tileAt(layer, x, y)
+    local w = Refs.World
+    if not w or x < 0 or y < 0 or x >= w.w or y >= w.h then return nil end
+    local grid = w[layer]
+    local row = grid and grid[y]
+    return row and (row[x] or 0) or nil
+end
+
+local function getView()
+    local gg = PlayerGui:FindFirstChild("GameGui")
+    local cam = gg and gg:FindFirstChild("World") and gg.World:FindFirstChild("Camera")
+    local tiles = cam and cam:FindFirstChild("Tiles")
+    local pv = cam and cam:FindFirstChild("PlayerView")
+    if not (tiles and pv) then return nil end
+    local sample = tiles:FindFirstChildWhichIsA("ImageLabel")
+    if not sample or sample.AbsoluteSize.X <= 0 then return nil end
+    return { tiles = tiles, pv = pv, ts = sample.AbsoluteSize.X }
+end
+
+local function getPlayerTile()
+    if Refs.State then
+        local ok, s = pcall(Refs.State)
+        if ok and type(s) == "table" and type(s.x) == "number" then
+            if s.active == false then return nil end
+            return math.floor(s.x) + State.CalibX, math.floor(s.y - 0.475) + State.CalibY
+        end
+    end
+    local v = getView()
+    if not v then return nil end
+    local center = v.pv.AbsolutePosition + v.pv.AbsoluteSize / 2
+    local rel = center - v.tiles.AbsolutePosition
+    return math.floor(rel.X / v.ts) + State.CalibX, math.floor(rel.Y / v.ts) + State.CalibY
+end
+
+-- Tile, block & mode Auto Farm yang dipakai sekarang (Pabrik memakai miliknya sendiri)
+local function farmOffsets()
+    local o = State.Override
+    return (o and o.offsets) or State.Offsets
+end
+local function farmBlock()
+    local o = State.Override
+    if o then return o.block end
+    return State.SelectedId
+end
+local function farmMode()
+    local o = State.Override
+    return (o and o.mode) or State.Mode
+end
+
+local function sortedOffsets()
+    local list = {}
+    for key in pairs(farmOffsets()) do
+        local dx, dy = string.match(key, "^(-?%d+),(-?%d+)$")
+        table.insert(list, { dx = tonumber(dx), dy = tonumber(dy) })
+    end
+    table.sort(list, function(a, b)
+        if a.dy ~= b.dy then return a.dy < b.dy end
+        return a.dx < b.dx
+    end)
+    return list
+end
+
+---------------------------------------------------------------------
+-- AKSI DASAR: place & pukul
+---------------------------------------------------------------------
+local function sendSetTile(layer, x, y, id)
+    if Refs.SetTile then
+        local ok, err = pcall(Refs.SetTile, layer, x, y, id, false, false)
+        if ok then return true end
+        warn("[Fian792] setTile game gagal, pakai remote langsung: " .. tostring(err))
+    end
+    if NetOk and type(Net) == "table" and type(Net.tile) == "table" then
+        -- sama seperti game: layer 1 = fg, 2 = bg
+        local ok = pcall(Net.tile.send, {
+            layer = (layer == "bg") and 2 or 1, x = x, y = y, id = id, flip = false,
+        })
+        if not ok then return false end
+    elseif SetTileRemote then
+        SetTileRemote:FireServer(layer, x, y, id, false)
+    else
+        return false
+    end
+    local grid = Refs.World and Refs.World[layer]
+    if grid and grid[y] then grid[y][x] = id end
+    return true
+end
+
+local function sendHitFx(x, y)
+    if NetOk and type(Net) == "table" and Net.act then
+        pcall(Net.act.send, { x = x + 0.5, y = y + 0.5 })
+    end
+end
+
+local function hitsNeeded(id)
+    if State.HitsOverride > 0 then return State.HitsOverride end
+    local it = ItemDB[id]
+    if not it then return 4 end
+    local h = (it.kind == "seed") and 20 or it.hits
+    return tonumber(h) or 4
+end
+
+local function canBreak(id)
+    if id == 0 then return false end
+    local it = ItemDB[id]
+    if not it then return true end
+    if it.lock or it.area or it.vend or it.display then return false end
+    local h = (it.kind == "seed") and 20 or it.hits
+    return h == nil or h > 0
+end
+
+-- Game abaikan pukulan ke tile yang baru di-place (< 0.3 detik)
+local PLACE_GUARD = 0.32
+
+-- Place 1 tile kalau kosong. Hasil: "place" / "habis" / nil
+local function tryPlace(x, y)
+    local sel = farmBlock()
+    if not sel then return nil end
+    local fg = tileAt("fg", x, y)
+    if fg == nil then return nil end
+    local bg = tileAt("bg", x, y)
+    local it = ItemDB[sel]
+    local layer = (it and it.background) and "bg" or "fg"
+    local cur = (layer == "bg") and bg or fg
+    if not (cur == 0 and (layer == "bg" or fg == 0)) then return nil end
+    if invCount(sel) <= 0 then return "habis" end
+
+    sendSetTile(layer, x, y, sel)
+    if Refs.Inv then pcall(function() Refs.Inv:remove(sel, 1) end) end
+    local key = x .. "," .. y
+    HitCount[key] = nil
+    PlacedAt[key] = os.clock()
+    State.Placed += 1
+    State.LastAction = "Place " .. itemName(sel) .. " (" .. x .. "," .. y .. ")"
+    return "place"
+end
+
+-- Masih ada yang bisa dipecah di tile ini? (block depan / background)
+local function breakableAt(x, y)
+    local fg = tileAt("fg", x, y)
+    if fg == nil then return false end
+    if fg ~= 0 then return canBreak(fg) end
+    local bg = tileAt("bg", x, y)
+    return State.BreakBackground and bg ~= nil and bg ~= 0 and canBreak(bg)
+end
+
+-- Pukul 1 kali. Hasil: "hit" / "broke" / nil
+-- includeBg = ikut pecah background
+local function tryBreak(x, y, includeBg)
+    if includeBg == nil then includeBg = State.BreakBackground end
+    local key = x .. "," .. y
+    local fg = tileAt("fg", x, y)
+    if fg == nil then return nil end
+    local bg = tileAt("bg", x, y)
+    local layer, id
+    if fg ~= 0 then
+        layer, id = "fg", fg
+    elseif includeBg and bg ~= 0 then
+        layer, id = "bg", bg
+    end
+    if not layer or not canBreak(id) then return nil end
+
+    -- tunggu sebentar kalau tile baru di-place
+    local t = PlacedAt[key]
+    if t then
+        local age = os.clock() - t
+        if age < PLACE_GUARD then task.wait(PLACE_GUARD - age) end
+        PlacedAt[key] = nil
+    end
+
+    if Refs.Punch then
+        local ok, err = pcall(Refs.Punch, x, y, State.MutePunch or nil, nil)
+        if not ok then
+            State.LastAction = "Error pukul: " .. tostring(err)
+            return nil
+        end
+        if tileAt(layer, x, y) ~= id then
+            State.Broken += 1
+            State.LastAction = "Break " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+            return "broke"
+        end
+        State.LastAction = "Pukul " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+        return "hit"
+    end
+
+    -- Cadangan: hitung pukulan sendiri
+    local hc = HitCount[key]
+    if not hc or hc.id ~= id or hc.layer ~= layer then
+        hc = { id = id, layer = layer, n = 0 }
+        HitCount[key] = hc
+    end
+    hc.n += 1
+    sendHitFx(x, y)
+    local need = hitsNeeded(id)
+    if hc.n >= need then
+        sendSetTile(layer, x, y, 0)
+        HitCount[key] = nil
+        State.Broken += 1
+        State.LastAction = "Break " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+        return "broke"
+    end
+    State.LastAction = "Pukul " .. itemName(id) .. " " .. hc.n .. "/" .. need
+    return "hit"
+end
+
+---------------------------------------------------------------------
+-- AUTO COLLECT
+---------------------------------------------------------------------
+-- Cara game: World.takeDrop(uid, jumlah) -> server balas jumlahnya -> masuk inventori.
+-- Game cuma ambil drop yang disentuh badan; di sini drop diambil langsung.
+local TakeDropRemote = WorldRemotes:FindFirstChild("TakeDrop") -- game lama saja
+
+local function getUpvalues(fn)
+    if debug and debug.getupvalues then
+        local ok, ups = pcall(debug.getupvalues, fn)
+        if ok and type(ups) == "table" then return ups end
+    end
+    local out = {}
+    local gu = (debug and debug.getupvalue) or getupvalue
+    if gu then
+        for i = 1, 60 do
+            local ok, v = pcall(gu, fn, i)
+            if not ok then break end
+            out[i] = v
+        end
+    end
+    return out
+end
+
+-- Cek apakah tabel ini daftar drop game
+local function isDropList(t)
+    if type(t) ~= "table" or t == Refs.World then return false end
+    local first = rawget(t, 1)
+    if first == nil then return next(t) == nil end
+    return type(first) == "table" and rawget(first, "uid") ~= nil and rawget(first, "frame") ~= nil
+end
+
+local function findDropRefs()
+    Drops.list, Drops.update = nil, nil
+    -- 1) dari fungsi World.dropTaken (isinya: daftar drop + fungsi update)
+    local wd = Refs.World and rawget(Refs.World, "dropTaken")
+    if type(wd) == "function" then
+        for _, u in pairs(getUpvalues(wd)) do
+            if not Drops.list and isDropList(u) then
+                Drops.list = u
+            elseif not Drops.update and type(u) == "function" then
+                Drops.update = u
+            end
+        end
+    end
+    -- 2) dari handler DropTaken game
+    local ev = WorldRemotes:FindFirstChild("DropTaken")
+    if not Drops.list and ev and getconnections then
+        local ok, conns = pcall(getconnections, ev.OnClientEvent)
+        if ok and type(conns) == "table" then
+            for _, c in ipairs(conns) do
+                local okf, fn = pcall(function() return c.Function end)
+                if okf and type(fn) == "function" then
+                    for _, u in pairs(getUpvalues(fn)) do
+                        if not Drops.list and isDropList(u) then
+                            Drops.list = u
+                        elseif not Drops.update and type(u) == "function" then
+                            Drops.update = u
+                        end
+                    end
+                end
+                if Drops.list then break end
+            end
+        end
+    end
+    -- 3) cadangan: cari lewat getgc
+    if not Drops.list and getgc then
+        for _, v in ipairs(getgc(true)) do
+            if type(v) == "table" then
+                local e = rawget(v, 1)
+                if type(e) == "table" and rawget(e, "uid") ~= nil and rawget(e, "frame") ~= nil
+                    and rawget(e, "born") ~= nil then
+                    Drops.list = v
+                    break
+                end
+            end
+        end
+    end
+    return Drops.list ~= nil
+end
+
+local function takeDrop(d)
+    local worldTake = Refs.World and rawget(Refs.World, "takeDrop")
+    if type(worldTake) ~= "function" and not TakeDropRemote then return false end
+    if d.taking or d.pending or d.display or (d.n or 0) <= 0 then return false end
+    -- drop yang kamu buang sendiri belum boleh dipungut lagi (aturan game), kecuali gems
+    if d.armed == false and d.id ~= 112 then return false end
+    local now = os.clock()
+    if DropFailUntil[d.uid] and now < DropFailUntil[d.uid] then return false end
+
+    local amount = d.n
+    if d.id ~= 112 and Refs.Inv then -- 112 = gems, tidak makan slot
+        local okr, room = pcall(function() return Refs.Inv:room(d.id) end)
+        if okr and type(room) == "number" then amount = math.min(amount, room) end
+    end
+    if amount <= 0 then -- inventori penuh: coba lagi 1 detik lagi
+        DropFailUntil[d.uid] = now + 1
+        local last = Hook.LastFull[d.id]
+        if not last or now - last > 120 then
+            Hook.LastFull[d.id] = now
+            Hook.send("full", "Inventori penuh: " .. itemName(d.id) .. " tidak bisa diambil lagi")
+        end
+        return false
+    end
+
+    d.taking = true -- cegah diambil dobel
+    -- langsung hilang dari layar (sama seperti game saat memungut drop)
+    d.flown = true
+    if typeof(d.frame) == "Instance" then pcall(function() d.frame.Visible = false end) end
+    local ok, taken
+    if type(worldTake) == "function" then
+        ok, taken = pcall(worldTake, d.uid, amount) -- cara game baru
+    else
+        ok, taken = pcall(TakeDropRemote.InvokeServer, TakeDropRemote, d.uid, amount)
+    end
+    d.taking = false
+
+    if not (ok and type(taken) == "number" and taken > 0) then
+        State.CollectFail += 1
+        d.refused = os.clock() -- tanda ditolak, sama seperti game
+        DropFailUntil[d.uid] = os.clock() + 1 -- coba lagi 1 detik lagi (sama seperti game)
+        d.flown = nil
+        if typeof(d.frame) == "Instance" then pcall(function() d.frame.Visible = not d.culled end) end
+        return false
+    end
+    DropFailUntil[d.uid] = nil
+
+    if d.id == 112 then
+        if Refs.Gems then pcall(Refs.Gems.addGems, taken) end
+    elseif Refs.Inv then
+        pcall(function() Refs.Inv:add(d.id, taken) end)
+    end
+    if Drops.list and Drops.update and table.find(Drops.list, d) then
+        pcall(Drops.update, d, d.n - taken) -- kurangi / hapus drop seperti game
+    end
+    State.Collected += taken
+    Stats.Items[d.id] = (Stats.Items[d.id] or 0) + taken
+    State.LastAction = "Collect " .. itemName(d.id) .. " x" .. taken
+    return true
+end
+
+local function inTile(t, x, y)
+    return x >= t.x - 0.15 and x < t.x + 1.15 and y >= t.y - 0.15 and y < t.y + 1.15
+end
+
+-- ---------- Collector cepat ----------
+-- Cek daftar drop TIAP FRAME. Drop di area langsung diambil, semuanya sekaligus
+-- (paralel), jadi tidak antri menunggu balasan server satu per satu.
+--   Auto Farm  : drop di tile yang dipilih di Grid
+--   Clear / Farmer : drop di sekitar karakter
+local OffsetParse = {}
+local nextDropScan = 0
+
+local function canTry(d, now)
+    if type(d) ~= "table" or d.taking or (d.n or 0) <= 0 or type(d.x) ~= "number" then return false end
+    if d.armed == false and d.id ~= 112 then return false end
+    local fail = DropFailUntil[d.uid]
+    return not (fail and now < fail)
+end
+
+local function collectTick()
+    local offs = farmOffsets()
+    local farmArea = (State.AutoCollect or State.Override ~= nil) and next(offs) ~= nil
+    local nearArea = State.CollectAround or (Clear.Running and Clear.Collect) or (Farmer.Running and Farmer.Collect)
+        or Pabrik.Running or Build.Running or Splice.Roaming
+    if not farmArea and not nearArea then return end
+
+    local list = Drops.list
+    if not list then
+        local now = os.clock()
+        if now >= nextDropScan then -- cari daftar drop paling sering tiap 5 detik
+            nextDropScan = now + 5
+            findDropRefs()
+        end
+        return
+    end
+    if #list == 0 then return end
+
+    local ok, s = false, nil
+    if Refs.State then ok, s = pcall(Refs.State) end
+    if not (ok and type(s) == "table" and type(s.x) == "number") then return end
+    local cx, cy = s.x, s.y - 0.475
+    local ptx, pty = getPlayerTile()
+    local now = os.clock()
+    local R = (State.CollectRadius or 3) + 0.2
+    -- tempat drop pabrik tidak ikut diambil lagi
+    local z = Pabrik.Zone
+    if z and z.world ~= (Refs.World and rawget(Refs.World, "name")) then z = nil end
+
+    for i = #list, 1, -1 do
+        local d = list[i]
+        if canTry(d, now) and not (z and math.abs(d.x - z.x) <= 2.5 and math.abs(d.y - z.y) <= 2.5) then
+            local hit = nearArea and math.abs(d.x - cx) <= R and math.abs(d.y - cy) <= R
+            if not hit and farmArea and ptx then
+                for key in pairs(offs) do
+                    local o = OffsetParse[key]
+                    if not o then
+                        local dx, dy = string.match(key, "^(-?%d+),(-?%d+)$")
+                        o = { tonumber(dx), tonumber(dy) }
+                        OffsetParse[key] = o
+                    end
+                    if inTile({ x = ptx + o[1], y = pty + o[2] }, d.x, d.y) then
+                        hit = true
+                        break
+                    end
+                end
+            end
+            if hit then task.spawn(takeDrop, d) end
+        end
+    end
+end
+
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    if alive() then collectTick() end
+end))
+
+-- Tunggu sebentar sampai drop di tile ini terambil (supaya tidak tertimpa block baru)
+local function waitTileDrops(t, maxSec)
+    local list = Drops.list
+    if not list then return end
+    local t0 = os.clock()
+    while os.clock() - t0 < maxSec and alive() do
+        local now, busy = os.clock(), false
+        for _, d in ipairs(list) do
+            if type(d) == "table" and type(d.x) == "number" and (d.n or 0) > 0 and inTile(t, d.x, d.y)
+                and (d.taking or canTry(d, now)) then
+                busy = true
+                break
+            end
+        end
+        if not busy then return end
+        task.wait()
+    end
+end
+
+---------------------------------------------------------------------
+-- STATUS
+---------------------------------------------------------------------
+local function offsetsText()
+    local list = {}
+    for _, o in ipairs(sortedOffsets()) do
+        table.insert(list, "(" .. o.dx .. "," .. o.dy .. ")")
+    end
+    return #list > 0 and table.concat(list, " ") or "-"
+end
+
+local lastStatusText = nil
+
+local function updateStatus()
+    if not UI.Status then return end
+    local px, py = getPlayerTile()
+    local sel = State.SelectedId
+    local txt = "Status   : " .. (State.Running and "JALAN" or "BERHENTI")
+        .. "\nBlock    : " .. (sel and (itemName(sel) .. " x" .. invCount(sel)) or "-")
+        .. "\nKarakter : " .. (px and ("(" .. px .. "," .. py .. ")") or "tidak di world")
+        .. "\nTile     : " .. offsetsText()
+        .. "\nPlace/Break/Collect : " .. State.Placed .. " / " .. State.Broken .. " / " .. State.Collected
+        .. (State.CollectFail > 0 and (" (ditolak " .. State.CollectFail .. ")") or "")
+        .. "\nAksi     : " .. State.LastAction
+    if txt == lastStatusText then return end
+    lastStatusText = txt
+    task.defer(function()
+        pcall(function() UI.Status:SetDesc(txt) end)
+    end)
+end
+
+---------------------------------------------------------------------
+-- MODE LITE (matikan particle + suara)
+---------------------------------------------------------------------
+local DummyLabel = setmetatable({}, { __index = function() return 0 end, __newindex = function() end })
+local DummyParticle = setmetatable({ l = DummyLabel, k = {} }, { __index = function() return 0 end, __newindex = function() end })
+local NullSound
+NullSound = setmetatable({}, {
+    __index = function() return NullSound end,
+    __newindex = function() end,
+    __call = function() return NullSound end,
+})
+local LiteSaved = {}
+
+local function liteOverride(tbl, key, repl)
+    if type(tbl) == "table" and type(rawget(tbl, key)) == "function" then
+        table.insert(LiteSaved, { tbl, key, rawget(tbl, key) })
+        tbl[key] = repl
+    end
+end
+
+local function setLite(on)
+    State.LiteMode = on
+    if on then
+        if #LiteSaved == 0 then
+            if ParticlesOk then liteOverride(ParticlesModule, "spawn", function() return DummyParticle end) end
+            if SfxOk then
+                liteOverride(SfxModule, "play", function() return NullSound end)
+                liteOverride(SfxModule, "playAt", function() return NullSound end)
+            end
+        end
+        for _, p in ipairs(Refs.Particles) do
+            pcall(function()
+                for _, e in ipairs(p.live) do
+                    if typeof(e.l) == "Instance" then e.l.Visible = false end
+                end
+            end)
+        end
+    else
+        for _, s in ipairs(LiteSaved) do
+            pcall(function() s[1][s[2]] = s[3] end)
+        end
+        table.clear(LiteSaved)
+    end
+end
+
+---------------------------------------------------------------------
+-- MISC: walkspeed, infinite jump, fly + tembus block
+---------------------------------------------------------------------
+-- Infinite jump: game dibuat mengira ada Antigravity Generator, jadi bisa lompat di udara
+local OrigJammerOn = nil
+local function infJumpWrapper(id, ...)
+    -- dimatikan saat Clear / Farmer jalan (lompat harus normal)
+    if Misc.InfJump and id == 4992 and not AutoInput.active then
+        return true
+    end
+    if OrigJammerOn then return OrigJammerOn(id, ...) end
+    return false
+end
+
+local function hookJammer()
+    local w = Refs.World
+    if not w then return end
+    local cur = rawget(w, "jammerOn")
+    if cur == infJumpWrapper or type(cur) ~= "function" then return end
+    OrigJammerOn = cur
+    w.jammerOn = infJumpWrapper
+end
+
+local function unhookJammer()
+    local w = Refs.World
+    if w and rawget(w, "jammerOn") == infJumpWrapper and OrigJammerOn then
+        w.jammerOn = OrigJammerOn
+    end
+end
+
+local function setInfJump(on)
+    Misc.InfJump = on
+    if on then hookJammer() else unhookJammer() end
+end
+
+local function setGhost(on)
+    Misc.Ghost = on
+    if not on then
+        Misc.UpHeld, Misc.DownHeld = false, false
+        if Refs.World then Refs.World.ghost = false end
+    end
+    if UI.FlyPad then UI.FlyPad.Enabled = on end
+end
+
+local function setSpeed(pct)
+    Misc.Speed = math.clamp(math.floor(tonumber(pct) or 100), 50, 500)
+    if Misc.Speed == 100 and Refs.World then Refs.World.speedScale = 1 end
+end
+
+-- Tombol gerak game dibaca dari WorldMenu.isDown. Dibungkus supaya
+-- tombol ▲/▼ Fly bisa dipakai, dan Clear / Farmer bisa "menekan" tombol sendiri.
+local OrigIsDown = nil
+local function isDownWrapper(saved, key, ...)
+    if AutoInput.active then
+        if key == "keyLeft" then return AutoInput.left end
+        if key == "keyRight" then return AutoInput.right end
+        if key == "keyJump" then return AutoInput.jump end
+        if key == "keyDown" then return AutoInput.down end
+    end
+    if Misc.Ghost then
+        if key == "keyDown" and Misc.DownHeld then return true end
+        if key == "keyJump" and Misc.UpHeld then return true end
+    end
+    return OrigIsDown(saved, key, ...)
+end
+
+if MenuModOk and type(MenuModule) == "table" and type(rawget(MenuModule, "isDown")) == "function" then
+    OrigIsDown = rawget(MenuModule, "isDown")
+    MenuModule.isDown = isDownWrapper
+end
+
+-- Pasang walkspeed & fly tiap frame (game bisa menimpanya)
+table.insert(Connections, RunService.Heartbeat:Connect(function()
+    local w = Refs.World
+    if not w or not alive() then return end
+    if Misc.Speed ~= 100 then w.speedScale = Misc.Speed / 100 end
+    if Misc.Ghost and w.ghost ~= true then w.ghost = true end
+end))
+
+---------------------------------------------------------------------
+-- FARM LOOP: place semua dulu, baru break satu per satu
+---------------------------------------------------------------------
+local stopFarm
+
+local function waitMs(ms)
+    task.wait(math.max(ms or 0, 10) / 1000)
+    return State.Running and alive()
+end
+
+local function validate()
+    local doPlace = farmMode() ~= "Break saja"
+    if not Refs.World then return "Data world belum ketemu. Tekan 'Hubungkan ke game'" end
+    if next(farmOffsets()) == nil then return "Pilih tile dulu di Grid Tile" end
+    if not getPlayerTile() then return "Kamu belum masuk world" end
+    if doPlace and not farmBlock() then return "Pilih block dari inventori" end
+    return nil
+end
+
+-- Rayman's Fist sedang dipakai? (fungsi asli game)
+local function raymanOn()
+    local w = Refs.World
+    local f = w and rawget(w, "raymanOn")
+    if type(f) ~= "function" then return false end
+    local ok, on = pcall(f)
+    return ok and on == true
+end
+
+-- Cari 2-3 tile target yang segaris dari karakter (8 arah, jarak 1-3),
+-- sama seperti pukulan Rayman di game.
+local RAY_DIRS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 } }
+local function raymanLine(px, py, active)
+    local byKey = {}
+    for _, a in ipairs(active) do byKey[a.x .. "," .. a.y] = a end
+    local best, bestDir = nil, nil
+    for _, d in ipairs(RAY_DIRS) do
+        local line = {}
+        for i = 1, 3 do
+            local a = byKey[(px + d[1] * i) .. "," .. (py + d[2] * i)]
+            if a then line[#line + 1] = a end
+        end
+        if #line >= 2 and #line > (best and #best or 0) then best, bestDir = line, d end
+    end
+    return best, bestDir
+end
+
+-- Kabarkan gerakan Rayman ke server (paket yang sama dengan game saat pukulan Rayman)
+local function raymanAct(dir)
+    local ok, s = pcall(Refs.State)
+    if not ok or type(s) ~= "table" or not s.x then return end
+    if NetOk and type(Net) == "table" and Net.act then
+        pcall(Net.act.send, { kind = 4, x = s.x + dir[1], y = s.y - 0.475 + dir[2] })
+    end
+end
+
+local function farmLoop(runId)
+    local lastStatus = 0
+    while State.Running and alive() and State.RunId == runId do
+        local doPlace = farmMode() ~= "Break saja"
+        local doBreak = farmMode() ~= "Place saja"
+
+        local px, py = getPlayerTile()
+        if not px then
+            stopFarm("Karakter tidak ditemukan (keluar world?)")
+            return
+        end
+
+        local tiles = {}
+        for _, o in ipairs(sortedOffsets()) do
+            tiles[#tiles + 1] = { x = px + o.dx, y = py + o.dy }
+        end
+
+        local acted, outOfBlock = false, false
+
+        -- 1) Place semua tile kosong (tunggu drop di tile itu terambil dulu)
+        if doPlace then
+            for _, t in ipairs(tiles) do
+                if not State.Running then break end
+                if State.AutoCollect then waitTileDrops(t, 0.5) end
+                local r = tryPlace(t.x, t.y)
+                if r == "habis" then
+                    outOfBlock = true
+                    break
+                elseif r == "place" then
+                    acted = true
+                    if not waitMs(State.PlaceMs) then break end
+                end
+            end
+        end
+
+        -- 2) Pukul tile sampai habis (block depan lalu background).
+        --    Server hanya terima 1 pukulan tiap ~0.22 detik (tangan biasa), jadi multi target
+        --    = beberapa tile dipukul BERGANTIAN (sama seperti 2 jari). Semua tile benar-benar pecah.
+        --    Pakai Rayman's Fist: 2-3 tile segaris dipukul sekali jalan (seperti Rayman asli).
+        if doBreak then
+            local K = math.clamp(math.floor(State.MultiTarget or 1), 1, 5)
+            local nextI, active = 1, {}
+            while State.Running and alive() do
+                while #active < K and nextI <= #tiles do
+                    local t = tiles[nextI]
+                    nextI += 1
+                    active[#active + 1] = { x = t.x, y = t.y, n = 0 }
+                end
+                if #active == 0 then break end
+
+                -- pilih tile yang dipukul sekarang
+                local hits, rayDir = nil, nil
+                if K > 1 and raymanOn() then
+                    hits, rayDir = raymanLine(px, py, active)
+                end
+                if not rayDir then hits = { active[1] } end -- giliran depan antrian
+
+                local t0 = os.clock()
+                if rayDir then raymanAct(rayDir) end
+                local hit, broke = false, false
+                for i, a in ipairs(hits) do
+                    if not State.Running then break end
+                    if i > 1 then task.wait(0.05) end -- jarak antar tile seperti animasi Rayman
+                    local r = tryBreak(a.x, a.y)
+                    a.n += 1
+                    if r then hit, acted = true, true end
+                    if r == "broke" then broke = true end
+                    -- selesai kalau kosong / tidak bisa dipecah / sudah habis sampai background
+                    if r == nil or a.n > 80 or (r == "broke" and not breakableAt(a.x, a.y)) then
+                        a.done = true
+                    end
+                    a.used = true
+                end
+
+                -- tile yang barusan dipukul pindah ke belakang antrian (bergantian)
+                local nextActive = {}
+                for _, a in ipairs(active) do
+                    if not a.done and not a.used then nextActive[#nextActive + 1] = a end
+                end
+                for _, a in ipairs(hits) do
+                    a.used = nil
+                    if not a.done then nextActive[#nextActive + 1] = a end
+                end
+                active = nextActive
+
+                if hit then
+                    local gap = State.BreakMs / 1000
+                    if rayDir then gap = math.max(gap, 0.35) end -- jeda Rayman asli
+                    local rest = gap - (os.clock() - t0)
+                    if rest > 0.005 then task.wait(rest) end
+                    if not (State.Running and alive()) then break end
+                end
+                -- drop diambil otomatis oleh collector cepat
+                if broke and State.AfterBreakMs > 0 then task.wait(State.AfterBreakMs / 1000) end
+            end
+        end
+
+        if not State.Running or not alive() then break end
+
+        if not acted then
+            local sel = farmBlock()
+            if outOfBlock or (doPlace and sel and invCount(sel) <= 0) then
+                stopFarm("Block " .. itemName(sel) .. " di inventori habis")
+                return
+            end
+            if not waitMs(State.BreakMs) then break end
+        end
+
+        State.Cycles += 1
+        if os.clock() - lastStatus > 1 then
+            lastStatus = os.clock()
+            updateStatus()
+        end
+    end
+    updateStatus()
+end
+
+local function setRunningVisual()
+    if State.Override then return end -- dijalankan Pabrik: tombol Auto Farm tidak diubah
+    if UI.FarmToggle then pcall(function() UI.FarmToggle:Set(State.Running) end) end
+    if UI.GridStart and UI.GridMode ~= "pabrik" then
+        UI.GridStart.Text = State.Running and "STOP" or "START"
+        UI.GridStart.BackgroundColor3 = State.Running and Color3.fromRGB(200, 60, 60) or Color3.fromRGB(46, 160, 90)
+    end
+end
+
+stopFarm = function(reason)
+    State.Running = false
+    setRunningVisual()
+    if reason and not State.Quiet then
+        notify("Auto Farm berhenti", reason, 4)
+        Hook.send("stop", "Auto Farm berhenti: " .. reason)
+    end
+    updateStatus()
+end
+
+-- Auto Farm, Clear & Farmer tidak boleh jalan bersamaan
+local stopClear, stopFarmer
+
+local function startFarm()
+    if State.Running then return end
+    local err = validate()
+    if err then
+        stopFarm(err)
+        return
+    end
+    if Splice.Running and Splice.stop then Splice.stop("Dihentikan karena Auto Farm dimulai") end
+    if Pabrik.Running and Pabrik.stop then Pabrik.stop("Dihentikan karena Auto Farm dimulai") end
+    if Build.Running and Build.stop then Build.stop("Dihentikan karena Auto Farm dimulai") end
+    if Clear.Running and stopClear then stopClear("Dihentikan karena Auto Farm dimulai") end
+    if Farmer.Running and stopFarmer then stopFarmer("Dihentikan karena Auto Farm dimulai") end
+    table.clear(HitCount)
+    table.clear(PlacedAt)
+    State.Running = true
+    State.RunId = (State.RunId or 0) + 1
+    setRunningVisual()
+    updateStatus()
+    task.spawn(farmLoop, State.RunId)
+end
+
+
+-- Fungsi untuk UI dikumpulkan di sini (Luau batasi 200 variabel per file)
+local Auto = {}
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+---------------------------------------------------------------------
+-- GERAK OTOMATIS (dipakai Clear World & Farmer)
+---------------------------------------------------------------------
+-- Cara kerja:
+--   - Jalan dicari pakai A* sesuai fisika game (jalan, jatuh, lompat naik 1-3 tile).
+--   - Karakter digerakkan dengan "menekan" tombol, sama seperti main biasa.
+--   - Tidak pakai fly / noclip karena server me-rollback.
+--   - Kalau tidak ada pijakan, taruh block dari inventori (jembatan / tangga).
+local floor, abs = math.floor, math.abs
+
+local Move = { Placed = 0 }  -- jumlah block pijakan yang dipasang
+local BadEdge = {}           -- jalur yang barusan gagal (dihindari dulu)
+local ClearFail, FarmerFail = {}, {}
+local BreakTimes = {}        -- tile yang terus balik lagi setelah pecah
+local Reach = nil            -- daftar tile yang bisa dijangkau (cache)
+
+local function autoOn()
+    return (Clear.Running or Farmer.Running or Splice.Roaming or Pabrik.Running or Build.Running or Move.Homing)
+        and alive()
+end
+
+local function setMoveStatus(text)
+    if Clear.Running then
+        Clear.Status = text
+    elseif Farmer.Running then
+        Farmer.Status = text
+    elseif Splice.Roaming then
+        Splice.Status = text
+    elseif Build.Running then
+        Build.Status = text
+    elseif Pabrik.Running then
+        Pabrik.Status = text
+    end
+end
+
+local function skipTile(tbl, idx, sec)
+    tbl[idx] = os.clock() + (sec or 30)
+end
+
+local function skipped(tbl, idx, now)
+    local t = tbl[idx]
+    if not t then return false end
+    if (now or os.clock()) >= t then
+        tbl[idx] = nil
+        return false
+    end
+    return true
+end
+
+local function skippedCount(tbl)
+    local n, now = 0, os.clock()
+    for _, t in pairs(tbl) do
+        if t > now then n += 1 end
+    end
+    return n
+end
+
+local function hudRange(name, def)
+    local f = Refs.Hud and Refs.Hud[name]
+    if type(f) == "function" then
+        local ok, r = pcall(f)
+        if ok and type(r) == "number" and r > 0 then return r end
+    end
+    return def
+end
+
+local function punchReach() return hudRange("punchRange", 2.5) end
+local function buildReach() return hudRange("buildRange", 2.5) end
+
+local function playerState()
+    if not Refs.State then return nil end
+    local ok, s = pcall(Refs.State)
+    if ok and type(s) == "table" and type(s.x) == "number" and type(s.y) == "number" and s.active ~= false then
+        return s
+    end
+    return nil
+end
+
+local function fgIdAt(x, y)
+    local w = Refs.World
+    local row = w and w.fg[y]
+    return (row and row[x]) or 0
+end
+
+local function fgItemAt(x, y)
+    local id = fgIdAt(x, y)
+    if id ~= 0 then return ItemDB[id] end
+    return nil
+end
+
+-- Tile padat? (sama dengan cek tabrakan game)
+local function solidAt(x, y)
+    local w = Refs.World
+    if not w then return true end
+    if x < 0 or x >= w.w or y >= w.h then return true end
+    if y < 0 then return false end
+    local it = fgItemAt(x, y)
+    if not it then return false end
+    if it.combiner then
+        local ok, shut = pcall(w.combinerShut, x, y)
+        return (not ok) or (shut and true or false)
+    end
+    if it.vip then -- pintu VIP: padat kalau kamu tidak punya akses
+        local ok, may = pcall(w.vipMay, x, y)
+        return not (ok and may)
+    end
+    if it.entrance then
+        local sw = w.switches and w.switches[y * w.w + x]
+        if it.gate then
+            return not (sw and sw.off == true)
+        end
+        if sw and sw.public then return false end
+        local ok, may = pcall(function() return w.areas.mayBuild(w.lock, x, y) end)
+        return not (ok and may)
+    end
+    return it.solid and true or false
+end
+
+-- Tile berbahaya (lava, duri, laser)
+local function hazardAt(x, y)
+    local it = fgItemAt(x, y)
+    return it ~= nil and (it.deadly or it.hurts or it.laser) and true or false
+end
+
+local function platformAt(x, y)
+    local it = fgItemAt(x, y)
+    return it ~= nil and it.platform and true or false
+end
+
+local function openAt(x, y)
+    return not solidAt(x, y) and not hazardAt(x, y)
+end
+
+-- Ada pijakan aman di bawah tile ini?
+local function realSupport(x, y)
+    return not hazardAt(x, y + 1) and (solidAt(x, y + 1) or platformAt(x, y + 1))
+end
+
+-- Tile masuk jangkauan? (bentuk kotak di sekitar badan)
+local function stateReaches(s, tx, ty, R)
+    return abs(tx + 0.5 - s.x) <= R and abs(ty + 0.5 - (s.y - 0.475)) <= R
+end
+
+-- Boleh pecah di sini? (cek lock)
+local function canWorkAt(x, y)
+    local w = Refs.World
+    local ok, res = pcall(function()
+        if w.areas and type(w.areas.mayBuild) == "function" and not w.areas.mayBuild(w.lock, x, y) then
+            return false
+        end
+        if type(w.builderOk) == "function" and not w.builderOk(x, y, false) then
+            return false
+        end
+        return true
+    end)
+    return (not ok) or res
+end
+
+-- ---------- Block pijakan ----------
+local function scaffoldId()
+    local id, use
+    if Clear.Running then
+        id, use = Clear.ScaffoldId, Clear.UseBlock
+    elseif Farmer.Running then
+        id, use = Farmer.ScaffoldId, Farmer.UseBlock
+    elseif Build.Running then
+        id, use = Build.BlockId, Build.UseBlock
+    end
+    if use and id and invCount(id) > 0 then return id end
+    return nil
+end
+
+-- Boleh taruh block di sini? (kosong + izin bangun)
+local function placeOk(x, y)
+    local w = Refs.World
+    if not w or x < 0 or y < 0 or x >= w.w or y >= w.h then return false end
+    if fgIdAt(x, y) ~= 0 then return false end
+    local ok, res = pcall(function()
+        if w.areas and type(w.areas.canEdit) == "function" and not w.areas.canEdit(x, y) then return false end
+        if type(w.builderOk) == "function" and not w.builderOk(x, y, true) then return false end
+        return true
+    end)
+    return (not ok) or res
+end
+
+local function placeScaffold(x, y)
+    local id = scaffoldId()
+    if not id or not placeOk(x, y) then return false end
+    local s = playerState()
+    if not s or not stateReaches(s, x, y, buildReach() - 0.05) then return false end
+    sendSetTile("fg", x, y, id) -- place lewat fungsi game
+    if Refs.Inv then pcall(function() Refs.Inv:remove(id, 1) end) end
+    Move.Placed += 1
+    return true
+end
+
+local function worldVersion()
+    return Clear.Broken + Farmer.Harvested + Farmer.Planted + Move.Placed + Splice.Planted
+end
+
+local function startNode(s)
+    local ny = floor(s.y - 0.475)
+    local nx = floor(s.x)
+    if realSupport(nx, ny) then return nx, ny end
+    local a, b = floor(s.x - 0.3), floor(s.x + 0.3 - 0.0001)
+    for _, c in ipairs({ a, b }) do
+        if c ~= nx and realSupport(c, ny) then return c, ny end
+    end
+    return nx, ny
+end
+
+-- ---------- Antrian prioritas untuk A* ----------
+local function heapPush(hf, hi, n, f, i)
+    n += 1
+    local k = n
+    while k > 1 do
+        local p = k // 2
+        if hf[p] <= f then break end
+        hf[k], hi[k] = hf[p], hi[p]
+        k = p
+    end
+    hf[k], hi[k] = f, i
+    return n
+end
+
+local function heapPop(hf, hi, n)
+    local top = hi[1]
+    local lf, li = hf[n], hi[n]
+    hf[n], hi[n] = nil, nil
+    n -= 1
+    if n > 0 then
+        local k = 1
+        while true do
+            local c = k * 2
+            if c > n then break end
+            if c < n and hf[c + 1] < hf[c] then c += 1 end
+            if lf <= hf[c] then break end
+            hf[k], hi[k] = hf[c], hi[c]
+            k = c
+        end
+        hf[k], hi[k] = lf, li
+    end
+    return top, n
+end
+
+-- ---------- A* ----------
+-- Cari jalan termurah ke tempat yang bisa memukul salah satu target.
+-- Langkah yang bisa dipakai:
+--   walk   : geser 1 tile (+ taruh block kalau perlu)
+--   fall   : jalan ke pinggir lalu jatuh
+--   jump   : lompat naik 1-3 tile
+--   gap    : lompati lubang 1-2 tile
+--   pillar : lompat lalu taruh block di bawah kaki (naik 1)
+local MAX_EXPAND = 8000
+local BLOCK_COST = 2
+
+local function reachOffsets(R)
+    return floor(R), math.ceil(-R + 0.025), floor(R + 0.025)
+end
+
+local function astar(sx, sy, goals, gx, gy, R, useBlock)
+    local w = Refs.World
+    if not w then return nil, false, {} end
+    local W, H = w.w, w.h
+    local WH = W * H
+    local dxm, dyLo, dyHi = reachOffsets(R)
+    local oC, sC, bC = {}, {}, {}
+
+    local function open(x, y)
+        if x < 0 or x >= W or y >= H then return false end
+        if y < 0 then return true end
+        local i = y * W + x
+        local v = oC[i]
+        if v == nil then
+            v = openAt(x, y)
+            oC[i] = v
+        end
+        return v
+    end
+
+    local function sup(x, y)
+        if x < 0 or x >= W or y < 0 or y >= H then return false end
+        local i = y * W + x
+        local v = sC[i]
+        if v == nil then
+            v = realSupport(x, y)
+            sC[i] = v
+        end
+        return v
+    end
+
+    local function buildable(x, y)
+        if not useBlock or x < 0 or x >= W or y < 0 or y >= H then return false end
+        local i = y * W + x
+        local v = bC[i]
+        if v == nil then
+            v = placeOk(x, y)
+            bC[i] = v
+        end
+        return v
+    end
+
+    local function h(x, y)
+        local dx = abs(gx - x) - R
+        local dyRaw = gy - y
+        local dy = abs(dyRaw) - R
+        local vw = (dyRaw < 0) and 1.5 or 0.5
+        return (dx > 0 and dx or 0) + vw * (dy > 0 and dy or 0)
+    end
+
+    local function isGoal(nx, ny)
+        for ty = ny + dyLo, ny + dyHi do
+            if ty >= 0 and ty < H then
+                local base = ty * W
+                for tx = nx - dxm, nx + dxm do
+                    -- jangan berdiri tepat di atas target
+                    if tx >= 0 and tx < W and goals[base + tx] and not (tx == nx and ty == ny + 1) then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local ex, ey, ek, ec, eb = {}, {}, {}, {}, {}
+    local n = 0
+    local function add(x, y, kind, cost, build)
+        n += 1
+        ex[n], ey[n], ek[n], ec[n], eb[n] = x, y, kind, cost, build
+    end
+
+    local function expand(x, y)
+        n = 0
+        for s = -1, 1, 2 do
+            local ax = x + s
+            if open(ax, y) then
+                if sup(ax, y) then
+                    add(ax, y, "walk", 1, false)
+                else
+                    if buildable(ax, y + 1) then
+                        add(ax, y, "walk", 1 + BLOCK_COST, true)
+                    end
+                    -- jatuh sampai ketemu pijakan
+                    local fy = y + 1
+                    while fy < H and fy - y <= 40 and open(ax, fy) and not sup(ax, fy) do
+                        fy += 1
+                    end
+                    if fy < H and open(ax, fy) and sup(ax, fy) then
+                        add(ax, fy, "fall", 1 + 0.5 * (fy - y), false)
+                    end
+                    -- lompati lubang 1-2 tile
+                    if open(x, y - 1) and open(x, y - 2) then
+                        for dist = 2, 3 do
+                            local mx = x + (dist - 1) * s
+                            if not (open(mx, y) and open(mx, y - 1) and open(mx, y - 2)) then break end
+                            if dist == 3 and sup(mx, y) then break end
+                            local bx = x + dist * s
+                            if open(bx, y - 1) and open(bx, y - 2) then
+                                for k = 0, 2 do
+                                    if not open(bx, y + k) then break end
+                                    if sup(bx, y + k) then
+                                        add(bx, y + k, "gap", dist + 0.5 + 0.5 * k, false)
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            -- lompat naik (atas kepala harus kosong)
+            for dy = 1, 3 do
+                if not open(x, y - dy) then break end
+                if open(x, y - dy - 1) and open(ax, y - dy) and sup(ax, y - dy) and open(ax, y - dy - 1) then
+                    add(ax, y - dy, "jump", 1 + 1.5 * dy, false)
+                end
+            end
+        end
+        -- naik 1 pakai block
+        if useBlock and open(x, y - 1) and open(x, y - 2) and open(x, y - 3) and buildable(x, y) then
+            add(x, y - 1, "pillar", 2 + BLOCK_COST, true)
+        end
+        return n
+    end
+
+    local startI = sy * W + sx
+    local g, came, kind, buildOf, closed = { [startI] = 0 }, {}, {}, {}, {}
+    local hf, hi, hn = {}, {}, 0
+    hn = heapPush(hf, hi, hn, h(sx, sy), startI)
+    local expanded = 0
+    local now = os.clock()
+
+    while hn > 0 do
+        local cur
+        cur, hn = heapPop(hf, hi, hn)
+        if not closed[cur] then
+            closed[cur] = true
+            local cx, cy = cur % W, cur // W
+            if isGoal(cx, cy) then
+                local path = {}
+                local i = cur
+                while i ~= startI do
+                    local p = came[i]
+                    table.insert(path, 1, {
+                        fx = p % W, fy = p // W, x = i % W, y = i // W,
+                        kind = kind[i], build = buildOf[i], key = p * WH + i,
+                    })
+                    i = p
+                end
+                return path, false, closed
+            end
+            expanded += 1
+            if expanded > MAX_EXPAND then return nil, false, closed end
+            if expanded % 400 == 0 then
+                task.wait()
+                if not autoOn() then return nil, false, closed end
+            end
+            local gc = g[cur]
+            local cnt = expand(cx, cy)
+            for k = 1, cnt do
+                local ni = ey[k] * W + ex[k]
+                if not closed[ni] then
+                    local bad = BadEdge[cur * WH + ni]
+                    if not (bad and bad > now) then
+                        local ng = gc + ec[k]
+                        local old = g[ni]
+                        if old == nil or ng < old then
+                            g[ni], came[ni], kind[ni], buildOf[ni] = ng, cur, ek[k], eb[k]
+                            hn = heapPush(hf, hi, hn, ng + h(ex[k], ey[k]), ni)
+                        end
                     end
                 end
             end
         end
     end
-    return nil
+    return nil, true, closed -- tidak ada jalan sama sekali
 end
 
-local function GetBag()
-    local world = FindWorld()
-    if not world or type(rawget(world, "backpackNow")) ~= "function" then
-        return nil
-    end
-    for _, value in pairs(GetUpvalues(world.backpackNow)) do
-        if type(value) == "table" and type(value.slots) == "table" then
-            return value
-        end
-    end
-    return nil
-end
-
-local function CountItem(id)
-    local bag = GetBag()
-    if not bag then
-        return nil
-    end
-    local total = 0
-    for _, slot in pairs(bag.slots) do
-        if type(slot) == "table" and slot.id == id then
-            total += slot.n or 0
-        end
-    end
-    return total
-end
-
-local function TileValue(world, layer, x, y)
-    local grid = rawget(world, layer)
-    local row = grid and grid[y]
-    return row and row[x] or nil
-end
-
-local function InBounds(world, x, y)
-    return type(world.w) == "number" and x >= 0 and y >= 0 and x < world.w and y < world.h
-end
-
-local function LayerOf(id)
-    local db = GetItemDB()
-    local item = db and db[id]
-    if type(item) == "table" and item.background then
-        return "bg"
-    end
-    return "fg"
-end
-
-----------------------------------------------------------------------
--- AUTO FARM
--- Siklus: place block di semua sel target -> pukul sampai pecah ->
--- teleport ambil item yang jatuh -> kembali ke posisi awal.
--- Sel target: N tile ke depan (arah hadap) dan/atau N tile ke atas.
-----------------------------------------------------------------------
-local farmToken = 0
-local farmAnchor = nil
-
-local function FarmCells(world, anchor)
-    local cells = {}
-    for key, on in pairs(Config.farmGrid) do
-        local dx, dy = tostring(key):match("^(-?%d+),(-?%d+)$")
-        dx, dy = tonumber(dx), tonumber(dy)
-        if on and dx and dy and math.abs(dx) <= 2 and math.abs(dy) <= 2 and not (dx == 0 and dy == 0) then
-            local x, y = anchor.x + dx, anchor.y + dy
-            if InBounds(world, x, y) then
-                table.insert(cells, { x = x, y = y })
+-- Semua tile yang bisa dijangkau dari area ini
+local function reachableTileSet(closed, W, R)
+    local set = {}
+    local dxm, dyLo, dyHi = reachOffsets(R)
+    local n = 0
+    for i in pairs(closed) do
+        local x, y = i % W, i // W
+        for dy = dyLo, dyHi do
+            local ty = y + dy
+            if ty >= 0 then
+                local base = ty * W
+                for dx = -dxm, dxm do
+                    local tx = x + dx
+                    if tx >= 0 and tx < W then set[base + tx] = true end
+                end
             end
         end
-    end
-    -- urut dari atas ke bawah, kiri ke kanan
-    table.sort(cells, function(p, q)
-        if p.y ~= q.y then
-            return p.y < q.y
-        end
-        return p.x < q.x
-    end)
-    return cells
-end
-
-local function PlaceCell(id, cell, facing)
-    local setTile = FindGameFn("setTile")
-    if not setTile then
-        return false
-    end
-    local ok = pcall(setTile, LayerOf(id), cell.x, cell.y, id, false, facing < 0)
-    if not ok then
-        return false
-    end
-    local bag = GetBag()
-    if bag and type(bag.remove) == "function" then
-        pcall(bag.remove, bag, id, 1)
-    end
-    return true
-end
-
-local function BreakCell(world, id, cell, token)
-    local hit = FindGameFn("hit")
-    if not hit then
-        return false
-    end
-    local layer = LayerOf(id)
-    if layer == "bg" and TileValue(world, "fg", cell.x, cell.y) ~= 0 then
-        return false
-    end
-    local started = os.clock()
-    while farmToken == token and TileValue(world, layer, cell.x, cell.y) == id do
-        if os.clock() - started > 10 then
-            return false
-        end
-        pcall(hit, cell.x, cell.y, true)
-        task.wait(math.max(0.03, Config.farmDelay))
-    end
-    return TileValue(world, layer, cell.x, cell.y) ~= id
-end
-
-local function DropSet(world)
-    local set = {}
-    local ok, list = pcall(world.dropList)
-    if ok and type(list) == "table" then
-        for _, drop in ipairs(list) do
-            set[drop] = true
-        end
+        n += 1
+        if n % 500 == 0 then task.wait() end
     end
     return set
 end
 
--- Ambil hanya drop yang muncul selama siklus ini (bukan drop lama / punya orang lain)
-local function CollectDrops(world, anchor, before, token)
-    local ok, list = pcall(world.dropList)
-    if not ok or type(list) ~= "table" then
-        return 0
+-- Simpan daftar tile terjangkau, supaya tile di seberang jurang langsung dilewati
+-- (tidak cari jalan berulang yang bikin karakter diam).
+local function reachFilter(startI, R, useBlock)
+    local c = Reach
+    if c and c.world == Refs.World and c.start == startI and c.R == R and c.block == useBlock
+        and c.ver == worldVersion() and os.clock() - c.at < 30 then
+        return c.set
     end
-    local targets = {}
-    for _, drop in ipairs(list) do
-        if not before[drop] and type(drop.x) == "number" and type(drop.y) == "number" and not drop.pending then
-            table.insert(targets, drop)
-        end
-    end
-    local picked = 0
-    for _, drop in ipairs(targets) do
-        if farmToken ~= token then
-            break
-        end
-        if table.find(list, drop) then
-            local reached = Nav.To(math.floor(drop.x), math.floor(drop.y), function() return farmToken ~= token end)
-            local waited = os.clock()
-            while reached and farmToken == token and table.find(list, drop) and os.clock() - waited < 0.9 do
-                task.wait(0.05)
-            end
-            if not table.find(list, drop) then
-                picked += 1
-            end
-        end
-    end
-    Nav.To(anchor.x, anchor.y, function() return farmToken ~= token end)
-    return picked
+    return nil
 end
 
-local function FarmLoop(token)
-    while farmToken == token do
-        local world = FindWorld()
-        if not world then
-            farmStats.status = "World tidak ditemukan"
-            break
-        end
-        if CurrentWorldName() ~= farmAnchor.world then
-            farmStats.status = "World berubah, farm berhenti"
-            Notify("Auto Farm berhenti: kamu pindah world.")
-            break
-        end
-
-        local id = Config.farmPlaceId
-        local layer = LayerOf(id)
-        local cells = FarmCells(world, farmAnchor)
-        if #cells == 0 then
-            farmStats.status = "Tidak ada sel target"
-            Notify("Auto Farm: pilih kotak hijau di grid GUI (" .. Config.prefix .. "af).")
-            break
-        end
-
-        -- pastikan di posisi awal
-        local tx, ty = GetTile()
-        if tx ~= farmAnchor.x or ty ~= farmAnchor.y then
-            Nav.To(farmAnchor.x, farmAnchor.y, function() return farmToken ~= token end)
-            task.wait(0.15)
-        end
-
-        -- 1) place
-        farmStats.status = "Place " .. ItemName(id)
-        local outOfItem = false
-        for _, cell in ipairs(cells) do
-            if farmToken ~= token then
-                break
-            end
-            if TileValue(world, layer, cell.x, cell.y) == 0 then
-                local have = CountItem(id)
-                if have ~= nil and have <= 0 then
-                    outOfItem = true
-                    break
-                end
-                if PlaceCell(id, cell, farmAnchor.facing) then
-                    farmStats.placed += 1
-                end
-                task.wait(0.1)
-            end
-        end
-        if farmToken ~= token then
-            break
-        end
-        task.wait(0.35) -- game menolak pukulan ke tile yang baru di-place < 0.3 detik
-
-        -- 2) break
-        farmStats.status = "Break " .. ItemName(id)
-        local before = DropSet(world)
-        for _, cell in ipairs(cells) do
-            if farmToken ~= token then
-                break
-            end
-            if TileValue(world, layer, cell.x, cell.y) == id then
-                if BreakCell(world, id, cell, token) then
-                    farmStats.broken += 1
-                end
-            end
-        end
-        if farmToken ~= token then
-            break
-        end
-
-        -- 3) ambil item
-        if Config.farmTake then
-            farmStats.status = "Ambil item"
-            task.wait(0.3) -- drop muncul sedikit setelah tile pecah
-            farmStats.picked += CollectDrops(world, farmAnchor, before, token)
-        end
-
-        farmStats.cycles += 1
-
-        if outOfItem then
-            farmStats.status = "Item habis"
-            Notify("Auto Farm berhenti: " .. ItemName(id) .. " habis di inventory.")
-            break
-        end
-        task.wait(0.1)
-    end
-end
-
-function StopFarm()
-    if not farmOn then
-        return false
-    end
-    farmToken += 1
-    farmOn = false
-    farmStats.status = "Mati"
-    return true
-end
-
-function StartFarm()
-    if farmOn then
-        return true
-    end
-    local id = Config.farmPlaceId
-    if type(id) ~= "number" or id <= 0 or ItemName(id) == "?" then
-        Notify("Isi ID block dulu di GUI Auto Farm (" .. Config.prefix .. "af).")
-        return false
-    end
-    local selected = 0
-    local reach = 0
-    for key, on in pairs(Config.farmGrid) do
-        local dx, dy = tostring(key):match("^(-?%d+),(-?%d+)$")
-        if on and dx and dy then
-            selected += 1
-            reach = math.max(reach, math.abs(tonumber(dx)), math.abs(tonumber(dy)))
-        end
-    end
-    if selected < 1 then
-        Notify("Pilih minimal 1 kotak di grid Auto Farm (" .. Config.prefix .. "af).")
-        return false
-    end
-    if not (FindGameFn("hit") and FindGameFn("setTile")) then
-        Notify("Fungsi hit/place game tidak ditemukan (executor perlu getgc + debug.info).")
-        return false
-    end
-    local x, y, facing = GetGridState()
-    if not x then
-        Notify("Posisi tidak terdeteksi!")
-        return false
-    end
-
-    -- Jangkauan: naikkan lewat Longhand kalau target lebih jauh dari range game
-    local inv = FindInventory()
-    local needed = reach + 0.05
-    local okRange, range = pcall(function()
-        return inv.buildRange()
-    end)
-    if okRange and type(range) == "number" and range < needed then
-        if longhandOn then
-            StopLonghand()
-        end
-        Config.longhandRange = math.max(Config.longhandRange, math.clamp(math.ceil(needed - 2.5), 1, 20))
-        ApplyLonghand()
-        Notify("Longhand otomatis aktif (" .. Config.longhandRange .. " tile) supaya target terjangkau.")
-    end
-
-    farmAnchor = {
-        x = math.floor(x),
-        y = math.floor(y - 0.475),
-        facing = facing,
-        world = CurrentWorldName(),
+local function storeReach(startI, R, useBlock, closed)
+    Reach = {
+        world = Refs.World, start = startI, R = R, block = useBlock, ver = worldVersion(), at = os.clock(),
+        set = reachableTileSet(closed, Refs.World.w, R),
     }
-    farmToken += 1
-    local token = farmToken
-    farmOn = true
-    farmStats = { status = "Mulai", placed = 0, broken = 0, picked = 0, cycles = 0 }
-
-    task.spawn(function()
-        local ok, err = pcall(FarmLoop, token)
-        if not ok then
-            warn(err)
-            Notify("Auto Farm error: " .. tostring(err))
-        end
-        if farmToken == token then
-            farmOn = false
-            if farmStats.status ~= "Item habis" then
-                farmStats.status = "Mati"
-            end
-            if RefreshHub then
-                RefreshHub()
-            end
-        end
-    end)
-    return true
 end
 
-----------------------------------------------------------------------
--- PATHFINDING + CLICK TP
--- Rute dicari lewat tile yang bisa dilewati (BFS). Ada 2 cara bergerak:
---  * JALAN  : karakter digerakkan lewat analog/keyboard bawaan game (fisika asli)
---  * TELEPORT: pindah bertahap 3-5 tile per lompatan + jeda kecil (tidak ditolak)
-----------------------------------------------------------------------
-do
-    local function Passable(db, world, x, y)
-        if not InBounds(world, x, y) then
-            return false
+-- ---------- Gerakkan karakter ----------
+local function releaseInput()
+    AutoInput.left, AutoInput.right, AutoInput.jump, AutoInput.down = false, false, false, false
+end
+
+local function frame()
+    task.wait()
+    return autoOn()
+end
+
+local function waitAuto(ms)
+    task.wait(math.max(ms or 0, 30) / 1000)
+    return autoOn()
+end
+
+-- Jalan ke targetX, lepas tombol saat sudah cukup dekat untuk berhenti
+local function steerX(s, targetX, tol)
+    local dx = targetX - s.x
+    local vx = s.vx or 0
+    local decel = s.grounded and 48 or 17
+    local dir = 0
+    if abs(dx) > tol then
+        dir = dx > 0 and 1 or -1
+        if vx * dir > 0 and (vx * vx) / (2 * decel) >= abs(dx) - tol * 0.5 then
+            dir = 0
         end
-        local id = TileValue(world, "fg", x, y)
-        if id == nil then
-            return false
-        end
-        if id == 0 then
+    end
+    AutoInput.left = dir < 0
+    AutoInput.right = dir > 0
+end
+
+-- Jalan sampai berdiri di tengah tile tujuan
+local function execWalk(tx, ty)
+    local cx = tx + 0.5
+    local s0 = playerState()
+    if not s0 then return false end
+    local limit = 1.5 + abs(cx - s0.x) * 0.35
+    local t0 = os.clock()
+    while frame() do
+        local s = playerState()
+        if not s or s.dead then return false end
+        local nx, ny = floor(s.x), floor(s.y - 0.475)
+        if s.grounded and ny ~= ty then return false end
+        steerX(s, cx, 0.1)
+        if nx == tx and abs(s.x - cx) <= 0.2 and s.grounded and abs(s.vx or 0) < 2 then
+            AutoInput.left, AutoInput.right = false, false
             return true
         end
-        local item = db and db[id]
-        if type(item) ~= "table" then
-            return false
-        end
-        -- Hazard (lava, spike, api) tidak dilewati / dijadikan tempat berdiri
-        -- (God Mode mematikan flag ini, jadi otomatis boleh kalau God Mode aktif)
-        if item.hurts or item.deadly then
-            return false
-        end
-        if item.combiner then
-            local okC, shut = pcall(function()
-                return world.combinerShut(x, y)
-            end)
-            return okC and not shut
-        end
-        if item.entrance then
-            -- Pintu/gerbang: sama seperti solidAt milik game. Bisa dilewati kalau
-            -- punya akses build di area itu, pintunya publik, atau gate sedang terbuka.
-            local sw = nil
-            local okS, sws = pcall(function()
-                return world.switches
-            end)
-            if okS and type(sws) == "table" then
-                sw = sws[y * world.w + x]
-            end
-            if item.gate then
-                return sw ~= nil and sw.off == true
-            end
-            if sw and sw.public then
-                return true
-            end
-            local okA, may = pcall(function()
-                return world.areas.mayBuild(world.lock, x, y)
-            end)
-            return okA and may and true or false
-        end
-        return not item.solid
+        if os.clock() - t0 > limit then return false end
     end
+    return false
+end
 
-    Nav.Passable = Passable
-
-    -- Cari rute terpendek (4 arah) dari (sx,sy) ke (tx,ty)
-    function Nav.Find(sx, sy, tx, ty)
-        local world = FindWorld()
-        local db = GetItemDB()
-        if not world or type(rawget(world, "w")) ~= "number" then
-            return nil, "world"
+-- Jalan ke pinggir lalu jatuh ke tile tujuan
+local function execFall(e)
+    local cx = e.x + 0.5
+    local limit = 1.5 + 0.3 * (e.y - e.fy)
+    local t0 = os.clock()
+    while frame() do
+        local s = playerState()
+        if not s or s.dead then return false end
+        steerX(s, cx, 0.1)
+        if s.grounded then
+            local nx, ny = floor(s.x), floor(s.y - 0.475)
+            if ny == e.y then
+                if nx == e.x and abs(s.x - cx) <= 0.25 then return true end
+            elseif ny ~= e.fy then
+                return false
+            end
         end
-        local W = world.w
+        if os.clock() - t0 > limit then return false end
+    end
+    return false
+end
 
-        -- tujuan tidak bisa dilewati (mis. diklik di atas block) -> tile kosong terdekat
-        if not Passable(db, world, tx, ty) then
-            local best, bestD = nil, math.huge
-            for r = 1, 3 do
-                for dy = -r, r do
-                    for dx = -r, r do
-                        local nx, ny = tx + dx, ty + dy
-                        if math.max(math.abs(dx), math.abs(dy)) == r and Passable(db, world, nx, ny) then
-                            local d = math.abs(dx) + math.abs(dy)
-                            if d < bestD then
-                                best, bestD = { nx, ny }, d
-                            end
-                        end
-                    end
+-- Lompat naik ke tile sebelah
+local function execJump(e)
+    if not execWalk(e.fx, e.fy) then return false end
+    local dy = e.fy - e.y
+    local top = e.y + 1                               -- tinggi kaki di tujuan
+    local releaseY = top - ((dy == 1) and 0 or 0.4)   -- lepas lompat di sini (kepala tidak kebentur)
+    local cx = e.x + 0.5
+    releaseInput()
+    if not frame() then return false end              -- lepas 1 frame supaya lompat terbaca
+    AutoInput.jump = true
+    local t0 = os.clock()
+    local airborne = false
+    while frame() do
+        local s = playerState()
+        if not s or s.dead then return false end
+        if not s.grounded then airborne = true end
+        if AutoInput.jump and (s.y <= releaseY or (airborne and (s.vy or 0) >= 0)) then
+            AutoInput.jump = false
+        end
+        if s.y <= top + 0.25 then
+            steerX(s, cx, 0.1)
+        else
+            steerX(s, e.fx + 0.5, 0.15)
+        end
+        if airborne and s.grounded then
+            local nx, ny = floor(s.x), floor(s.y - 0.475)
+            if ny == e.y then
+                if nx == e.x and abs(s.x - cx) <= 0.25 then
+                    AutoInput.jump = false
+                    return true
                 end
-                if best then
+            else
+                return false
+            end
+        end
+        if not airborne and os.clock() - t0 > 0.35 then return false end
+        if os.clock() - t0 > 1.8 then return false end
+    end
+    return false
+end
+
+-- Lompati lubang: ancang-ancang, lompat di ujung, rem di udara
+local function execGap(e)
+    if not execWalk(e.fx, e.fy) then return false end
+    local s0 = playerState()
+    if not s0 then return false end
+    local dir = (e.x > e.fx) and 1 or -1
+    local takeoff = e.fx + 0.5 + dir * 0.6
+    local startY = s0.y
+    local cx = e.x + 0.5
+    releaseInput()
+    local t0 = os.clock()
+    local jumped, airborne, jumpAt = false, false, 0
+    while frame() do
+        local s = playerState()
+        if not s or s.dead then return false end
+        if not jumped then
+            AutoInput.left, AutoInput.right = dir < 0, dir > 0
+            if (s.x - takeoff) * dir >= 0 or not s.grounded then
+                jumped, jumpAt = true, os.clock()
+                AutoInput.jump = s.grounded
+            end
+        else
+            if not s.grounded then airborne = true end
+            if AutoInput.jump and (s.y <= startY - 1 or (airborne and (s.vy or 0) >= 0)) then
+                AutoInput.jump = false
+            end
+            steerX(s, cx, 0.1)
+            if airborne and s.grounded then
+                local nx, ny = floor(s.x), floor(s.y - 0.475)
+                if ny == e.y then
+                    if nx == e.x and abs(s.x - cx) <= 0.25 then return true end
+                else
+                    return false
+                end
+            end
+            if not airborne and os.clock() - jumpAt > 0.35 then return false end
+        end
+        if os.clock() - t0 > 2.2 then return false end
+    end
+    return false
+end
+
+-- Naik 1 tile: lompat, taruh block di bawah kaki, lalu mendarat di atasnya.
+-- Block ditaruh agak telat supaya posisi di server sudah ikut naik.
+local function execPillar(e)
+    if not execWalk(e.fx, e.fy) then return false end
+    if fgIdAt(e.fx, e.fy) ~= 0 then return false end
+    releaseInput()
+    if not frame() then return false end
+    AutoInput.jump = true
+    local t0 = os.clock()
+    local placed, airborne = false, false
+    while frame() do
+        local s = playerState()
+        if not s or s.dead then return false end
+        if not s.grounded then airborne = true end
+        steerX(s, e.fx + 0.5, 0.12)
+        if AutoInput.jump and (s.y < e.fy - 0.9 or (airborne and (s.vy or 0) >= 0)) then
+            AutoInput.jump = false
+        end
+        if not placed and airborne and s.y < e.fy - 0.25 and ((s.vy or 0) > -6 or s.y < e.fy - 0.8) then
+            placed = placeScaffold(e.fx, e.fy)
+            if not placed then return false end
+        end
+        if s.grounded and airborne then
+            local nx, ny = floor(s.x), floor(s.y - 0.475)
+            return placed and nx == e.x and ny == e.y
+        end
+        if not airborne and os.clock() - t0 > 0.35 then return false end
+        if os.clock() - t0 > 1.8 then return false end
+    end
+    return false
+end
+
+local function followPath(path)
+    local i = 1
+    while i <= #path do
+        if not autoOn() then return false end
+        local e = path[i]
+        local last, ok = i, false
+        if e.kind == "walk" then
+            -- langkah searah digabung jadi satu gerakan
+            local dir = e.x - e.fx
+            while path[last + 1] and path[last + 1].kind == "walk" and (path[last + 1].x - path[last + 1].fx) == dir do
+                last += 1
+            end
+            local anyBuild = false
+            for j = i, last do
+                if path[j].build then
+                    anyBuild = true
                     break
                 end
             end
-            if not best then
-                return nil, "target"
-            end
-            tx, ty = best[1], best[2]
-        end
-
-        if sx == tx and sy == ty then
-            return {}, tx, ty
-        end
-
-        local startKey = sy * W + sx
-        local goalKey = ty * W + tx
-        local parent = { [startKey] = -1 }
-        local queue, head = { startKey }, 1
-        local found = false
-        while head <= #queue do
-            local key = queue[head]
-            head += 1
-            if key == goalKey then
-                found = true
-                break
-            end
-            local x, y = key % W, key // W
-            local neighbors = { { x, y - 1 }, { x, y + 1 }, { x - 1, y }, { x + 1, y } }
-            for _, n in ipairs(neighbors) do
-                local nk = n[2] * W + n[1]
-                if parent[nk] == nil and Passable(db, world, n[1], n[2]) then
-                    parent[nk] = key
-                    table.insert(queue, nk)
-                end
-            end
-            if head % 800 == 0 then
-                task.wait() -- world besar: jangan bikin freeze
-            end
-        end
-        if not found then
-            return nil, "nopath"
-        end
-
-        local path, key = {}, goalKey
-        while key ~= startKey do
-            table.insert(path, 1, { x = key % W, y = key // W })
-            key = parent[key]
-        end
-        return path, tx, ty
-    end
-
-    ------------------------------------------------------------------
-    -- INPUT GERAK (analog / keyboard bawaan game)
-    -- Game membaca arah dari MobileControls.dir() + tombol keyboard di
-    -- RenderStepped, lalu menggerakkan karakter dengan fisika normal
-    -- (kecepatan 7.2 tile/detik, lompat, tabrakan). Di sini kita menyuntik
-    -- "analog" itu, jadi karakter BENAR-BENAR berjalan, bukan teleport.
-    ------------------------------------------------------------------
-    Nav.inDir = 0
-    Nav.inJump = false
-    Nav.hooked = false
-    local VIM = nil
-    pcall(function()
-        VIM = game:GetService("VirtualInputManager")
-    end)
-    local keyState = {}
-    local function PressKey(code, down)
-        if not VIM or keyState[code] == down then
-            return
-        end
-        keyState[code] = down
-        pcall(function()
-            VIM:SendKeyEvent(down, code, false, game)
-        end)
-    end
-
-    local function FindControls()
-        return ScanGc("controls", function(t)
-            return type(rawget(t, "dir")) == "function"
-                and type(rawget(t, "jumping")) == "function"
-                and type(rawget(t, "punching")) == "function"
-                and type(rawget(t, "busy")) == "function"
-        end)
-    end
-
-    function Nav.InstallInput()
-        if Nav.hooked then
-            return true
-        end
-        local c = FindControls()
-        if not c then
-            return false
-        end
-        local origDir, origJump = c.dir, c.jumping
-        c.dir = function(...)
-            if Nav.inDir ~= 0 then
-                return Nav.inDir
-            end
-            return origDir(...)
-        end
-        c.jumping = function(...)
-            if Nav.inJump then
-                return true
-            end
-            return origJump(...)
-        end
-        Nav.ctl, Nav.origDir, Nav.origJump = c, origDir, origJump
-        Nav.hooked = true
-        return true
-    end
-
-    function Nav.InputReady()
-        return Nav.InstallInput() or VIM ~= nil
-    end
-
-    -- dir: -1 kiri, 0 diam, 1 kanan. jump: tahan lompat.
-    function Nav.SetInput(dir, jump)
-        Nav.inDir = dir
-        Nav.inJump = jump and true or false
-        if not Nav.hooked then
-            PressKey(Enum.KeyCode.Left, dir < 0)
-            PressKey(Enum.KeyCode.Right, dir > 0)
-            PressKey(Enum.KeyCode.Up, jump and true or false)
-        end
-    end
-
-    local function Sign(n)
-        return n > 0 and 1 or (n < 0 and -1 or 0)
-    end
-
-    -- JALAN ASLI: ikuti rute (BFS) memakai analog. Kecepatan = kecepatan jalan game,
-    -- jadi tidak pernah ditolak anti-teleport. Return: ok, detik (atau alasan gagal)
-    function Nav.Walk(tx, ty, cancel)
-        local started = os.clock()
-        local world = FindWorld()
-        if not world or type(rawget(world, "w")) ~= "number" then
-            return false, "world"
-        end
-        if not Nav.InputReady() then
-            return false, "input"
-        end
-        local sx, sy = GetTile()
-        if not sx then
-            return false, "pos"
-        end
-        local path, goalX, goalY = Nav.Find(sx, sy, tx, ty)
-        if not path then
-            return false, goalX
-        end
-        local W = world.w
-        local timeout = math.clamp(8 + (math.abs(goalX - sx) + math.abs(goalY - sy)) * 0.6, 8, 90)
-        local result, why = false, "stuck"
-
-        local ok, err = pcall(function()
-            local cur, pos = path, {}
-            local function Rebuild(x, y)
-                pos = { [y * W + x] = 0 }
-                for i, n in ipairs(cur) do
-                    pos[n.y * W + n.x] = i
-                end
-            end
-            Rebuild(sx, sy)
-
-            local prevPx, prevClock = nil, os.clock()
-            local refX, refY, refT = nil, nil, os.clock()
-            local lastReplan, replans, bestIdx = 0, 0, -1
-            local pressSince = nil
-
-            while true do
-                if cancel and cancel() then
-                    why = "cancel"
-                    return
-                end
-                local now = os.clock()
-                if now - started > timeout then
-                    why = "timeout"
-                    return
-                end
-                local px, py = GetGridState()
-                if not px then
-                    why = "pos"
-                    return
-                end
-                local cx, cy = math.floor(px), math.floor(py - 0.475)
-                local dt = math.max(now - prevClock, 1 / 240)
-                local vx = prevPx and (px - prevPx) / dt or 0
-                prevPx, prevClock = px, now
-
-                -- deteksi macet total
-                if not refX or math.abs(px - refX) > 0.4 or math.abs(py - refY) > 0.4 then
-                    refX, refY, refT = px, py, now
-                elseif now - refT > 2.2 then
-                    why = "stuck"
-                    return
-                end
-
-                if cx == goalX and cy == goalY and math.abs(vx) < 1.5 then
-                    result = true
-                    return
-                end
-
-                local idx = pos[cy * W + cx]
-                if idx == nil then
-                    -- keluar jalur (jatuh / meleset): hitung rute ulang dari tile sekarang
-                    Nav.SetInput(0, false)
-                    if now - lastReplan >= 0.12 then
-                        lastReplan = now
-                        replans += 1
-                        if replans > 40 then
-                            why = "stuck"
-                            return
-                        end
-                        local p2 = Nav.Find(cx, cy, goalX, goalY)
-                        if not p2 then
-                            why = "nopath"
-                            return
-                        end
-                        cur = p2
-                        Rebuild(cx, cy)
-                    end
-                    RunService.Heartbeat:Wait()
-                    continue
-                end
-                if idx > bestIdx then
-                    bestIdx, replans = idx, 0
-                end
-
-                local node = cur[idx + 1]
-                if not node then
-                    -- sudah di tile tujuan tapi masih meluncur: rem
-                    Nav.SetInput(0, false)
-                    RunService.Heartbeat:Wait()
-                    continue
-                end
-
-                local dx, dy = node.x - cx, node.y - cy
-                local inDir, jump = 0, false
-                if dx ~= 0 then
-                    inDir = dx
-                else
-                    local off = (cx + 0.5) - px
-                    if math.abs(off) > 0.18 then
-                        inDir = Sign(off)
-                    end
-                end
-                if dy < 0 then
-                    jump = true
-                end
-                -- rem sebelum tile tujuan akhir supaya tidak kebablasan
-                if idx + 1 == #cur and dx ~= 0 then
-                    local dist = (node.x + 0.5 - px) * dx
-                    if dist < (vx * vx) / 80 + 0.1 then
-                        inDir = 0
-                    end
-                end
-                -- tersangkut di sisi block (naik 1 tile): lompat
-                if inDir ~= 0 then
-                    pressSince = pressSince or now
-                    if dx ~= 0 and now - pressSince > 0.18 and math.abs(vx) < 0.6 then
-                        jump = true
-                    end
-                else
-                    pressSince = nil
-                end
-                Nav.SetInput(inDir, jump)
-                RunService.Heartbeat:Wait()
-            end
-        end)
-        Nav.SetInput(0, false)
-        if not ok then
-            warn(err)
-            return false, "error"
-        end
-        if result then
-            return true, os.clock() - started
-        end
-        return false, why
-    end
-
-    ------------------------------------------------------------------
-    -- TELEPORT BERTAHAP: loncat 3-5 tile per langkah (bukan satu lompatan
-    -- jauh) dengan jeda kecil, supaya tidak ditolak server / anti-teleport.
-    ------------------------------------------------------------------
-    local function HopRange()
-        local lo = math.clamp(math.floor(tonumber(Config.hopMin) or 3), 1, 8)
-        local hi = math.clamp(math.floor(tonumber(Config.hopMax) or 5), lo, 10)
-        return lo, hi
-    end
-
-    local function HopWait()
-        task.wait(math.clamp(tonumber(Config.hopDelay) or 0.12, 0.03, 1))
-    end
-
-    -- TERBANG: garis lurus tembus block, tapi tetap per 3-5 tile
-    function Nav.Fly(tx, ty, cancel)
-        local started = os.clock()
-        local world = FindWorld()
-        if not world or type(world.goTo) ~= "function" then
-            return false, "world"
-        end
-        local sx, sy = GetTile()
-        if not sx then
-            return false, "pos"
-        end
-        local db = GetItemDB()
-        if not InBounds(world, tx, ty) then
-            return false, "target"
-        end
-        if not Passable(db, world, tx, ty) then
-            local best, bestD = nil, math.huge
-            for r = 1, 3 do
-                for dy = -r, r do
-                    for dx = -r, r do
-                        local nx, ny = tx + dx, ty + dy
-                        if math.max(math.abs(dx), math.abs(dy)) == r and Passable(db, world, nx, ny) then
-                            local d = math.abs(dx) + math.abs(dy)
-                            if d < bestD then
-                                best, bestD = { nx, ny }, d
-                            end
-                        end
-                    end
-                end
-                if best then
-                    break
-                end
-            end
-            if not best then
-                return false, "target"
-            end
-            tx, ty = best[1], best[2]
-        end
-
-        local dx, dy = tx - sx, ty - sy
-        local len = math.sqrt(dx * dx + dy * dy)
-        local lo, hi = HopRange()
-        local cancelled = false
-        local prevGhost = world.ghost
-        world.ghost = true
-        local okFly = pcall(function()
-            local travelled = 0
-            while travelled < len do
-                if cancel and cancel() then
-                    cancelled = true
-                    return
-                end
-                travelled = math.min(len, travelled + math.random(lo, hi))
-                local x = sx + math.floor(dx * travelled / len + 0.5)
-                local y = sy + math.floor(dy * travelled / len + 0.5)
-                pcall(world.goTo, x, y)
-                HopWait()
-            end
-        end)
-        world.ghost = (noclipOn == true) or (Player:GetAttribute("Ghost") == true)
-        if cancelled then
-            return false, "cancel"
-        end
-        if not okFly then
-            world.ghost = prevGhost
-            return false, "fly"
-        end
-        pcall(world.goTo, tx, ty)
-        return true, os.clock() - started
-    end
-
-    -- Teleport lewat rute kosong, per 3-5 tile. Kalau tidak ada rute -> Nav.Fly (juga bertahap)
-    function Nav.Hop(tx, ty, cancel)
-        local started = os.clock()
-        local world = FindWorld()
-        if not world or type(world.goTo) ~= "function" then
-            return false, "world"
-        end
-        local sx, sy = GetTile()
-        if not sx then
-            return false, "pos"
-        end
-        local path, a, b = Nav.Find(sx, sy, tx, ty)
-        if not path then
-            return false, a
-        end
-        local goalX, goalY = a, b
-        local lo, hi = HopRange()
-        local rejected = 0
-        local i = 0
-        while i < #path do
-            if cancel and cancel() then
-                return false, "cancel"
-            end
-            local j = math.min(#path, i + math.random(lo, hi))
-            local node = path[j]
-            pcall(world.goTo, node.x, node.y)
-            HopWait()
-            local cx, cy = GetTile()
-            if cx and (cx ~= node.x or math.abs(cy - node.y) > 1) then
-                -- ditolak / terseret balik: perpendek lompatan lalu hitung rute dari posisi sekarang
-                rejected += 1
-                if rejected > 8 then
-                    return false, "rejected"
-                end
-                hi = math.max(1, hi - 1)
-                lo = math.min(lo, hi)
-                local p2 = Nav.Find(cx, cy, goalX, goalY)
-                if not p2 then
-                    return false, "nopath"
-                end
-                path, i = p2, 0
-            else
-                i = j
-            end
-        end
-        return true, os.clock() - started
-    end
-
-    -- Dipakai mode teleport (Auto Clear / Break ID / Pos): bertahap, cadangan terbang
-    function Nav.Tele(tx, ty, cancel)
-        local ok, info = Nav.Hop(tx, ty, cancel)
-        if ok or info == "cancel" then
-            return ok, info
-        end
-        return Nav.Fly(tx, ty, cancel)
-    end
-
-    -- Pindah sesuai mode (Config.moveMode): walk / tp / fly / mix
-    function Nav.Go(tx, ty, cancel)
-        local mode = Config.moveMode
-        if mode == "fly" then
-            return Nav.Fly(tx, ty, cancel)
-        elseif mode == "tp" then
-            return Nav.Tele(tx, ty, cancel)
-        elseif mode == "walk" then
-            return Nav.Walk(tx, ty, cancel)
-        end
-        -- mix: jalan dulu; kalau tidak ada jalan, terbang (bertahap)
-        local ok, info = Nav.Walk(tx, ty, cancel)
-        if ok or info == "cancel" then
-            return ok, info
-        end
-        return Nav.Fly(tx, ty, cancel)
-    end
-
-    -- Dipakai Auto Farm / Auto Clear
-    function Nav.To(x, y, cancel)
-        local world = FindWorld()
-        if not world then
-            return false
-        end
-        local ok = Nav.Go(x, y, cancel)
-        return ok
-    end
-
-    -- Data kamera dari fungsi game "act" (upvalue: kamera X, ukuran tile, kamera Y)
-    local actFn = nil
-    local function CamInfo()
-        if not actFn then
-            if not getgcFn or not (debug and debug.info) then
-                return nil
-            end
-            for _, fn in ipairs(getgcFn(true)) do
-                if type(fn) == "function" then
-                    local okName, fnName = pcall(debug.info, fn, "n")
-                    if okName and fnName == "act" then
-                        local ups = GetUpvalues(fn)
-                        if ups[1] == Players and type(ups[2]) == "number"
-                            and type(ups[4]) == "number" and type(ups[5]) == "number" then
-                            actFn = fn
-                            break
-                        end
-                    end
-                end
-            end
-        end
-        if not actFn then
-            return nil
-        end
-        local okX, camX = pcall(getupvalueFn, actFn, 2)
-        local okT, tile = pcall(getupvalueFn, actFn, 4)
-        local okY, camY = pcall(getupvalueFn, actFn, 5)
-        if okX and okT and okY and type(camX) == "number" and type(tile) == "number"
-            and type(camY) == "number" and tile > 0 then
-            return camX, camY, tile
-        end
-        return nil
-    end
-
-    -- Posisi layar -> tile (rumus sama dengan klik bawaan game)
-    function Nav.ScreenToTile(pos)
-        local camX, camY, tile = CamInfo()
-        if not camX then
-            return nil
-        end
-        local worldGui = PlayerGui:FindFirstChild("World", true)
-        if not worldGui or not worldGui:IsA("GuiObject") then
-            return nil
-        end
-        local scaleObj = worldGui:FindFirstChildWhichIsA("UIScale", true)
-        local scale = scaleObj and scaleObj.Scale or 1
-        local rel = (Vector2.new(pos.X, pos.Y) - worldGui.AbsolutePosition) / scale
-        return math.floor(camX + rel.X / tile), math.floor(camY + rel.Y / tile)
-    end
-
-    local function OnClick(input, processed)
-        if processed or not Nav.clickOn then
-            return
-        end
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.Touch then
-            return
-        end
-        if Config.clickTpShift and not (UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
-            or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)) then
-            return
-        end
-        local tx, ty = Nav.ScreenToTile(input.Position)
-        if not tx then
-            Notify("Click TP: posisi klik tidak terbaca.")
-            return
-        end
-        Nav.token += 1
-        local token = Nav.token
-        task.spawn(function()
-            local started = os.clock()
-            local ok, info = Nav.Go(tx, ty, function()
-                return Nav.token ~= token or not Nav.clickOn
-            end)
-            if ok then
-                Nav.last = string.format("PATH FINDING in %.2fs", os.clock() - started)
-                Notify(Nav.last)
-            elseif info == "cancel" then
-                return
-            else
-                Nav.last = "Gagal (" .. tostring(info) .. ")"
-                if info == "nopath" then
-                    Notify("PATH FINDING gagal: tidak ada jalan ke sana.")
-                elseif info == "target" then
-                    Notify("PATH FINDING gagal: tujuan tertutup block.")
-                else
-                    Notify("PATH FINDING gagal: " .. tostring(info))
-                end
-            end
-        end)
-    end
-
-    function Nav.StartClick()
-        if Nav.clickOn then
-            return true
-        end
-        if not CamInfo() then
-            Notify("Click TP: data kamera game tidak ditemukan (executor perlu getgc + debug.info).")
-            return false
-        end
-        Nav.clickOn = true
-        Nav.conn = UserInputService.InputBegan:Connect(OnClick)
-        return true
-    end
-
-    function Nav.StopClick()
-        if not Nav.clickOn then
-            return false
-        end
-        Nav.clickOn = false
-        Nav.token += 1
-        if Nav.conn then
-            Nav.conn:Disconnect()
-            Nav.conn = nil
-        end
-        return true
-    end
-end
-
-----------------------------------------------------------------------
--- AUTO CLEAR WORLD
--- 1) GrowScan dulu (hitung isi world) -> 2) kumpulkan semua tile yang boleh
--- dipecah (lock, area & bedrock DILEWATI) -> 3) teleport ke dekat grup 4 tile
--- -> 4) pukul 4 tile SEKALIGUS dalam satu putaran -> 5) ambil item drop.
--- Delay teleport & delay break bisa diatur di tab Clear.
-----------------------------------------------------------------------
-do
-    local function BatchSize()
-        return math.clamp(math.floor(tonumber(Config.clearPunch) or 3), 1, 3)
-    end
-
-    local function IsStaff(world)
-        local ok, staff = pcall(function()
-            return world and world.areas and world.areas.staff
-        end)
-        return ok and staff and true or false
-    end
-
-    -- Jumlah pukulan yang dibutuhkan game untuk memecah item ini (nil = tidak bisa).
-    -- Sama seperti fungsi hit milik game: hits <= 0 hanya bisa dipecah lewat staffHits
-    -- (khusus staff). Blok seperti lava / rock yang punya staffHits sebelumnya selalu
-    -- dilewati karena dianggap hits <= 0.
-    local function HitsOf(world, item)
-        if type(item) ~= "table" then
-            return nil
-        end
-        if item.kind == "seed" then
-            return 3
-        end
-        local h = item.hits
-        if type(h) == "number" and h > 0 then
-            return h
-        end
-        if type(item.staffHits) == "number" and item.staffHits > 0 and IsStaff(world) then
-            return item.staffHits
-        end
-        return nil
-    end
-
-    -- Tile yang TIDAK boleh dipecah: lock, area, bedrock, tidak bisa dipukul, door utama
-    local function Protected(db, id, world)
-        local item = db and db[id]
-        if type(item) ~= "table" then
-            return true
-        end
-        if item.lock or item.area then
-            return true
-        end
-        if type(item.hits) == "number" and item.hits <= 0 and not HitsOf(world or FindWorld(), item) then
-            return true
-        end
-        local name = type(item.name) == "string" and item.name:lower() or ""
-        if name:find("bedrock", 1, true) or name:find("main door", 1, true)
-            or name:find("white door", 1, true) or name:find("world lock", 1, true) then
-            return true
-        end
-        return false
-    end
-
-    -- Waktu maksimal menunggu 1 tile pecah (block keras seperti rock butuh lebih lama)
-    local function HitTimeout(world, db, id)
-        local need = HitsOf(world, db and db[id]) or 8
-        return math.clamp(need * math.max(0.03, Config.clearBreakDelay) * 2.5 + 4, 8, 90)
-    end
-
-    local reported = {}
-    local function ReportFail(db, id)
-        if reported[id] then
-            return
-        end
-        reported[id] = true
-        local item = db and db[id]
-        if type(item) ~= "table" then
-            Notify("Gagal pecah ID " .. tostring(id))
-            return
-        end
-        Notify(string.format("Gagal pecah %s (ID %s, hits=%s, staffHits=%s). hits <= 0 berarti hanya staff yang bisa memecahnya.",
-            tostring(item.name), tostring(id), tostring(item.hits), tostring(item.staffHits)))
-    end
-
-    local function Alive(world, t)
-        return TileValue(world, t.layer, t.x, t.y) == t.id
-    end
-
-    local function IsHazard(db, id)
-        local item = db and db[id]
-        return type(item) == "table" and (item.hurts or item.deadly) and true or false
-    end
-
-    -- Kumpulkan tile target (fg dulu; bg hanya kalau fg di atasnya sudah kosong)
-    local function Collect(world, db, fails)
-        local list = {}
-        for y = 0, world.h - 1 do
-            for x = 0, world.w - 1 do
-                local f = TileValue(world, "fg", x, y)
-                if f and f ~= 0 then
-                    if not Protected(db, f, world) and (fails[x .. "," .. y .. ",fg"] or 0) < 3 then
-                        table.insert(list, { x = x, y = y, id = f, layer = "fg" })
-                    end
-                else
-                    local b = TileValue(world, "bg", x, y)
-                    if b and b ~= 0 and not Protected(db, b, world) and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
-                        table.insert(list, { x = x, y = y, id = b, layer = "bg" })
-                    end
-                end
-            end
-        end
-        -- urutan ular (kiri->kanan lalu kanan->kiri) supaya teleport pendek
-        table.sort(list, function(p, q)
-            if p.y ~= q.y then
-                return p.y < q.y
-            end
-            if p.y % 2 == 0 then
-                return p.x < q.x
-            end
-            return p.x > q.x
-        end)
-        return list
-    end
-
-    -- Bentuk grup maksimal 4 tile yang saling berdekatan
-    local function MakeGroups(list, reach)
-        local groups, used = {}, {}
-        for i, first in ipairs(list) do
-            if not used[i] then
-                used[i] = true
-                local g = { first }
-                for j = i + 1, math.min(#list, i + 60) do
-                    if #g >= BatchSize() then
-                        break
-                    end
-                    local t = list[j]
-                    if not used[j] and math.abs(t.x - first.x) <= reach and math.abs(t.y - first.y) <= reach then
-                        used[j] = true
-                        table.insert(g, t)
-                    end
-                end
-                table.insert(groups, g)
-            end
-        end
-        return groups
-    end
-
-    -- Cari tile kosong tempat berdiri yang menjangkau semua tile di grup
-    local function StandingSpot(world, group, reach)
-        local cx, cy = group[1].x, group[1].y
-        local best, bestDist = nil, math.huge
-        for dy = -reach, reach do
-            for dx = -reach, reach do
-                local x, y = cx + dx, cy + dy
-                if InBounds(world, x, y) and TileValue(world, "fg", x, y) == 0 then
-                    local ok = true
-                    for _, t in ipairs(group) do
-                        if math.abs(t.x - x) > reach or math.abs(t.y - y) > reach then
+            if anyBuild then
+                -- perlu block: taruh block di depan, lalu melangkah
+                ok = true
+                for j = i, last do
+                    local st = path[j]
+                    if st.build and not realSupport(st.x, st.y) then
+                        setMoveStatus(("Taruh block pijakan (%d,%d)"):format(st.x, st.y + 1))
+                        if not placeScaffold(st.x, st.y + 1) or not waitAuto(120) then
                             ok = false
                             break
                         end
                     end
-                    if ok then
-                        local d = math.abs(dx) + math.abs(dy)
-                        if d < bestDist then
-                            best, bestDist = { x = x, y = y }, d
-                        end
-                    end
-                end
-            end
-        end
-        return best
-    end
-
-    -- Pukul HANYA tile di grup (1-4 tile sesuai pengaturan), satu putaran = 1 pukulan
-    -- per tile. Tile dianggap pecah kalau sudah hilang dari world (dibaca langsung).
-    -- owner = Clear / BreakId (pemilik token yang menghentikan loop).
-    local function BreakGroup(world, hit, group, token, owner)
-        owner = owner or Clear
-        local db = GetItemDB()
-        local started = os.clock()
-        local limit = 8
-        for _, t in ipairs(group) do
-            limit = math.max(limit, HitTimeout(world, db, t.id))
-        end
-        local failed = {}
-        while owner.token == token do
-            local any = false
-            for _, t in ipairs(group) do
-                if Alive(world, t) then
-                    any = true
-                    pcall(hit, t.x, t.y, true)
-                end
-            end
-            if not any then
-                break
-            end
-            if os.clock() - started > limit then
-                for _, t in ipairs(group) do
-                    if Alive(world, t) then
-                        table.insert(failed, t)
-                        ReportFail(db, t.id)
-                    end
-                end
-                break
-            end
-            task.wait(math.max(0.03, Config.clearBreakDelay))
-        end
-        return failed
-    end
-
-    -- owner = Clear / BreakId, mover = fungsi pindah (default Nav.To; mode jalan pakai Nav.Walk)
-    local function TakeDrops(world, before, token, home, owner, mover)
-        owner = owner or Clear
-        mover = mover or (Config.clearMode == "teleport" and Nav.Tele or Nav.To)
-        local ok, list = pcall(world.dropList)
-        if not ok or type(list) ~= "table" then
-            return 0
-        end
-        local targets = {}
-        for _, drop in ipairs(list) do
-            if (before == nil or not before[drop]) and type(drop.x) == "number"
-                and type(drop.y) == "number" and not drop.pending then
-                table.insert(targets, drop)
-            end
-        end
-        local picked = 0
-        for _, drop in ipairs(targets) do
-            if owner.token ~= token then
-                break
-            end
-            if table.find(list, drop) then
-                local reached = mover(math.floor(drop.x), math.floor(drop.y), function() return owner.token ~= token end)
-                task.wait(math.max(0.03, Config.clearTpDelay))
-                local waited = os.clock()
-                while reached and owner.token == token and table.find(list, drop) and os.clock() - waited < 0.8 do
-                    task.wait(0.05)
-                end
-                if not table.find(list, drop) then
-                    picked += 1
-                end
-            end
-        end
-        if home then
-            if not mover(home.x, home.y, function() return owner.token ~= token end) then
-                Nav.Tele(home.x, home.y, function() return owner.token ~= token end)
-            end
-            task.wait(math.max(0.03, Config.clearTpDelay))
-        end
-        return picked
-    end
-
-    ------------------------------------------------------------------
-    -- MODE TELEPORT: pindah ke grup block, pukul beberapa tile sekaligus
-    ------------------------------------------------------------------
-    local function TeleportClearLoop(token, home)
-        local db = GetItemDB()
-        local hit = FindGameFn("hit")
-        local inv = FindInventory()
-        if not db or not hit then
-            Clear.status = "Fungsi game tidak ditemukan"
-            return
-        end
-
-        table.clear(reported)
-        local fails = {}
-        local function Fail(t, n)
-            local key = t.x .. "," .. t.y .. "," .. t.layer
-            fails[key] = (fails[key] or 0) + (n or 1)
-        end
-        local lastLeft = nil
-        for pass = 1, 10 do
-            if Clear.token ~= token then
-                return
-            end
-            local world = FindWorld()
-            if not world or CurrentWorldName() ~= home.world then
-                Clear.status = "World berubah, berhenti"
-                Notify("Auto Clear berhenti: kamu pindah world.")
-                return
-            end
-
-            -- 1) GROWSCAN dulu
-            Clear.status = "GrowScan world..."
-            Clear.stats.pass = pass
-            local scan = ScanWorld()
-            local fgTotal, bgTotal = 0, 0
-            if scan then
-                for _, n in pairs(scan.fg) do fgTotal += n end
-                for _, n in pairs(scan.bg) do bgTotal += n end
-            end
-            local targets = Collect(world, db, fails)
-            Clear.stats.scanned = #targets
-            Clear.stats.left = #targets
-            if pass == 1 then
-                Notify(string.format("GrowScan: %d fg, %d bg. Target pecah: %d tile (lock & bedrock dilewati).",
-                    fgTotal, bgTotal, #targets))
-            end
-            if #targets == 0 then
-                break
-            end
-
-            -- 2) jangkauan
-            local okRange, range = pcall(function() return inv.buildRange() end)
-            local reach = 2
-            if okRange and type(range) == "number" then
-                reach = math.max(1, math.floor(range - 0.05))
-            end
-            reach = math.min(reach, 6)
-
-            if lastLeft and #targets >= lastLeft and pass > 3 then
-                -- tidak ada kemajuan, tandai sisa agar tidak berputar terus
-                for _, t in ipairs(targets) do
-                    Fail(t, 1)
-                end
-            end
-            lastLeft = #targets
-
-            local groups = MakeGroups(targets, math.max(1, math.floor(reach / 2)))
-            for index, group in ipairs(groups) do
-                if Clear.token ~= token then
-                    return
-                end
-                local spot = StandingSpot(world, group, reach)
-                if not spot then
-                    -- belum ada tempat berdiri; dicoba lagi di pass berikutnya
-                    for _, t in ipairs(group) do
-                        Fail(t, 1)
-                        Clear.stats.skipped += 1
-                    end
-                else
-                    Clear.status = string.format("Break grup %d/%d (pass %d)", index, #groups, pass)
-                    local px, py = GetTile()
-                    local reachable = true
-                    if px ~= spot.x or py ~= spot.y then
-                        reachable = Nav.Tele(spot.x, spot.y, function() return Clear.token ~= token end)
-                        task.wait(math.max(0.03, Config.clearTpDelay))
-                    end
-                    -- pastikan posisi player benar-benar sudah dekat grup (kalau tidak, pukulan meleset)
-                    local function InReach()
-                        local cx, cy = GetTile()
-                        if not cx then
-                            return false
-                        end
-                        for _, t in ipairs(group) do
-                            if math.abs(t.x - cx) > reach or math.abs(t.y - cy) > reach then
-                                return false
-                            end
-                        end
-                        return true
-                    end
-                    if not reachable or not InReach() then
-                        Nav.Tele(spot.x, spot.y, function() return Clear.token ~= token end)
-                        task.wait(math.max(0.05, Config.clearTpDelay))
-                        reachable = InReach()
-                    end
-                    if not reachable then
-                        for _, t in ipairs(group) do
-                            Fail(t, 1)
-                        end
-                        Clear.stats.skipped += #group
-                        Clear.status = "Posisi tidak tercapai, dicoba lagi di pass berikutnya"
-                        continue
-                    end
-                    local before = DropSet(world)
-                    local failedFg = BreakGroup(world, hit, group, token)
-
-                    -- Dirt/block (fg) sudah pecah -> pecahkan juga background (cave) di tile yang sama
-                    local follow = {}
-                    for _, t in ipairs(group) do
-                        if t.layer == "fg" and not table.find(failedFg, t) then
-                            local b = TileValue(world, "bg", t.x, t.y)
-                            if b and b ~= 0 and not Protected(db, b, world)
-                                and (fails[t.x .. "," .. t.y .. ",bg"] or 0) < 3 then
-                                table.insert(follow, { x = t.x, y = t.y, id = b, layer = "bg" })
-                            end
-                        end
-                    end
-                    local failedBg = {}
-                    if #follow > 0 and Clear.token == token then
-                        failedBg = BreakGroup(world, hit, follow, token)
-                    end
-
-                    for _, t in ipairs(failedFg) do
-                        Fail(t, 1)
-                        Clear.stats.skipped += 1
-                    end
-                    for _, t in ipairs(failedBg) do
-                        Fail(t, 1)
-                        Clear.stats.skipped += 1
-                    end
-                    local brokenNow = (#group - #failedFg) + (#follow - #failedBg)
-                    Clear.stats.broken += brokenNow
-                    Clear.stats.left = math.max(0, Clear.stats.left - #group + #failedFg)
-                    if Config.clearTake and brokenNow > 0 then
-                        task.wait(0.25) -- drop muncul sedikit setelah tile pecah
-                        Clear.status = "Ambil item"
-                        Clear.stats.picked += TakeDrops(world, before, token, nil)
-                    end
-                end
-            end
-        end
-
-        -- sapuan terakhir: ambil semua sisa drop
-        if Config.clearTake and Clear.token == token then
-            Clear.status = "Ambil sisa item"
-            local world = FindWorld()
-            if world then
-                Clear.stats.picked += TakeDrops(world, nil, token, home)
-            end
-        end
-        local world = FindWorld()
-        if world and Clear.token == token then
-            Nav.Tele(home.x, home.y, function() return Clear.token ~= token end)
-        end
-        Clear.status = "Selesai"
-        Notify(string.format("Auto Clear selesai: %d pecah, %d diambil, %d dilewati.",
-            Clear.stats.broken, Clear.stats.picked, Clear.stats.skipped))
-    end
-
-    ------------------------------------------------------------------
-    -- MODE JALAN (jalan asli lewat analog, tanpa teleport)
-    -- 1) Jalan dulu lewat tile kosong sampai ujung (BELUM break apa pun).
-    -- 2) Turun: break tile di BAWAH player 1x saja.
-    -- 3) Sapu baris: break N block (default 3) di DEPAN player sekaligus, jalan
-    --    maju, ulangi sampai ujung baris. Tidak break ke bawah selama menyapu.
-    -- 4) Turun 1x lagi, sapu ke arah sebaliknya, dan seterusnya sampai habis.
-    -- 5) Sisa block yang terlewat dibersihkan satu per satu di akhir.
-    -- Lava/spike tidak pernah dilewati atau dijadikan tempat berdiri.
-    ------------------------------------------------------------------
-    local NEIGH = { { 0, -1 }, { 0, 1 }, { -1, 0 }, { 1, 0 } }
-
-    local function WalkClearLoop(token, home)
-        local db = GetItemDB()
-        local hit = FindGameFn("hit")
-        local inv = FindInventory()
-        if not db or not hit or not inv then
-            Clear.status = "Fungsi game tidak ditemukan"
-            return
-        end
-        local Passable = Nav.Passable
-        if not Passable then
-            Clear.status = "Fungsi path tidak ditemukan"
-            return
-        end
-        if not Nav.InputReady() then
-            Clear.status = "Kontrol jalan game tidak ditemukan"
-            Notify("Mode jalan butuh kontrol analog game (getgc). Pakai mode Teleport.")
-            return
-        end
-        local world = FindWorld()
-        if not world or type(rawget(world, "w")) ~= "number" or CurrentWorldName() ~= home.world then
-            Clear.status = "World tidak ditemukan"
-            return
-        end
-        local W, H = world.w, world.h
-
-        table.clear(reported)
-        local function Cancelled()
-            return Clear.token ~= token
-        end
-        local fails = {}
-        local function Fail(t, n)
-            local key = t.x .. "," .. t.y .. "," .. t.layer
-            fails[key] = (fails[key] or 0) + (n or 1)
-        end
-        local function Walker(x, y, cancel)
-            local ok = Nav.Walk(x, y, cancel)
-            return ok
-        end
-        local function Batch()
-            return math.clamp(math.floor(tonumber(Config.clearPunch) or 3), 1, 3)
-        end
-
-        -- tile yang boleh dipecah sekarang (fg dulu; bg/cave hanya kalau fg sudah kosong)
-        local function TargetAt(x, y)
-            if not InBounds(world, x, y) then
-                return nil
-            end
-            local f = TileValue(world, "fg", x, y)
-            if f and f ~= 0 then
-                if Protected(db, f, world) or (fails[x .. "," .. y .. ",fg"] or 0) >= 3 then
-                    return nil
-                end
-                return { x = x, y = y, id = f, layer = "fg" }
-            end
-            local b = TileValue(world, "bg", x, y)
-            if b and b ~= 0 and not Protected(db, b, world) and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
-                return { x = x, y = y, id = b, layer = "bg" }
-            end
-            return nil
-        end
-
-        -- Aman kalau jatuh dari (x, y0) ke bawah? (tidak jatuh ke lava/spike)
-        local function LandingSafe(x, y0)
-            for y = math.max(0, y0), H - 1 do
-                local f = TileValue(world, "fg", x, y)
-                if f and f ~= 0 then
-                    if IsHazard(db, f) then
-                        return false
-                    end
-                    local item = db[f]
-                    if type(item) == "table" and item.solid then
-                        return true
-                    end
-                end
-            end
-            return false
-        end
-
-        -- tile ada dalam jangkauan pukul dari posisi player sekarang?
-        local function InRange(tx, ty)
-            local x, y = GetGridState()
-            if not x then
-                return false
-            end
-            local okR, r = pcall(function() return inv.buildRange() end)
-            r = (okR and type(r) == "number") and r or 2.5
-            return math.abs(tx + 0.5 - x) <= r - 0.05 and math.abs(ty + 0.5 - (y - 0.475)) <= r - 0.05
-        end
-
-        local sinceDrop = 0
-
-        -- pukul beberapa tile SEKALIGUS (satu putaran = 1 pukulan per tile) sampai semuanya hilang
-        local function HitTiles(tiles)
-            local started = os.clock()
-            local limit = 8
-            for _, t in ipairs(tiles) do
-                limit = math.max(limit, HitTimeout(world, db, t.id))
-            end
-            local failed = {}
-            while not Cancelled() do
-                local any = false
-                for _, t in ipairs(tiles) do
-                    if Alive(world, t) then
-                        any = true
-                        pcall(hit, t.x, t.y, true)
-                    end
-                end
-                if not any then
-                    break
-                end
-                if os.clock() - started > limit then
-                    for _, t in ipairs(tiles) do
-                        if Alive(world, t) then
-                            table.insert(failed, t)
-                        end
-                    end
-                    break
-                end
-                task.wait(math.max(0.03, Config.clearBreakDelay))
-            end
-            for _, t in ipairs(failed) do
-                Fail(t, 1)
-                Clear.stats.skipped += 1
-                ReportFail(db, t.id)
-            end
-            local okN = #tiles - #failed
-            if not Cancelled() then
-                Clear.stats.broken += okN
-                Clear.stats.left = math.max(0, Clear.stats.left - okN)
-                sinceDrop += okN
-            end
-            return okN
-        end
-
-        -- tunggu sampai posisi player stabil (setelah block bawah pecah player jatuh)
-        local function SettledTile()
-            local lx, ly = GetTile()
-            for _ = 1, 16 do
-                task.wait(0.05)
-                local cx, cy = GetTile()
-                if cx == lx and cy == ly then
-                    return cx, cy
-                end
-                lx, ly = cx, cy
-            end
-            return lx, ly
-        end
-
-        -- Maju ke arah d (1 = kanan, -1 = kiri) sampai ujung: pukul N block di depan
-        -- sekaligus, lalu jalan maju. TIDAK memecah ke bawah selama menyusuri baris.
-        local function SweepRow(d)
-            local walkFails = 0
-            for _ = 1, 6000 do
-                if Cancelled() then
-                    return
-                end
-                local fx, fy = GetGridState()
-                if not fx then
-                    return
-                end
-                local px, py = math.floor(fx), math.floor(fy - 0.475)
-                local n = Batch()
-
-                local targets = {}
-                local own = TargetAt(px, py) -- background tile tempat berdiri
-                if own and InRange(px, py) then
-                    table.insert(targets, own)
-                end
-                for k = 1, n do
-                    local tx = px + d * k
-                    local t = TargetAt(tx, py)
-                    if t then
-                        if not InRange(tx, py) then
-                            break
-                        end
-                        table.insert(targets, t)
-                    elseif not InBounds(world, tx, py) or not Passable(db, world, tx, py) then
+                    if not execWalk(st.x, st.y) then
+                        ok = false
                         break
                     end
                 end
-
-                if #targets > 0 then
-                    Clear.status = string.format("Break %d block depan (%d,%d)", #targets, px + d, py)
-                    HitTiles(targets)
-                else
-                    -- tidak ada yang perlu dipecah di N tile depan: maju lewat tile kosong
-                    local run = 0
-                    for k = 1, n do
-                        local tx = px + d * k
-                        if InBounds(world, tx, py) and not TargetAt(tx, py)
-                            and Passable(db, world, tx, py) and LandingSafe(tx, py + 1) then
-                            run = k
-                        else
-                            break
-                        end
-                    end
-                    if run == 0 then
-                        return -- ujung baris (block lock/bedrock/lava/tepi world)
-                    end
-                    Clear.status = string.format("Jalan maju %d tile", run)
-                    local ok = Walker(px + d * run, py, Cancelled)
-                    if Cancelled() then
-                        return
-                    end
-                    if not ok then
-                        local _, ny = GetTile()
-                        if ny == py then
-                            walkFails += 1
-                            if walkFails >= 3 then
-                                return
-                            end
-                        end
-                    end
-                    task.wait(0.03)
-                end
-            end
-        end
-
-        -- Pecah tile di bawah player SATU kali (fg lalu bg), tunggu player jatuh/menetap.
-        -- Return false kalau tidak bisa turun lagi.
-        local function DownOnce()
-            local px, py = GetTile()
-            if not px then
-                return false
-            end
-            for _ = 1, 3 do
-                local t = TargetAt(px, py + 1)
-                if not t then
-                    break
-                end
-                if t.layer == "fg" and not LandingSafe(px, py + 2) then
-                    return false -- di bawahnya lava/spike
-                end
-                Clear.status = string.format("Break bawah (%d,%d)", px, py + 1)
-                if HitTiles({ t }) < 1 then
-                    return false
-                end
-                local nx, ny = SettledTile()
-                if nx ~= px or ny ~= py then
-                    return ny > py
-                end
-            end
-            local nx, ny = SettledTile()
-            if ny and ny > py then
-                return true
-            end
-            return false
-        end
-
-        -- GrowScan
-        Clear.status = "GrowScan world..."
-        local scan = ScanWorld()
-        local fgTotal, bgTotal = 0, 0
-        if scan then
-            for _, n in pairs(scan.fg) do fgTotal += n end
-            for _, n in pairs(scan.bg) do bgTotal += n end
-        end
-
-        local px, py = GetTile()
-        local _, _, facing = GetGridState()
-        if not px then
-            Clear.status = "Posisi tidak terdeteksi"
-            return
-        end
-
-        -- jumlah target (untuk status)
-        local total = 0
-        for y = 0, H - 1 do
-            for x = 0, W - 1 do
-                if TargetAt(x, y) then
-                    total += 1
-                end
-            end
-            if y % 20 == 0 then
-                task.wait()
-            end
-        end
-        Clear.stats.scanned = total
-        Clear.stats.left = total
-        Notify(string.format("GrowScan: %d fg, %d bg. Mode jalan: %d tile dipecah (turun 1x, sapu baris sampai ujung, ulangi).",
-            fgTotal, bgTotal, total))
-
-        -- FASE 1: jalan (analog) dulu sampai ujung, belum ada yang dipecahkan
-        local function RunLen(d)
-            local n = 0
-            while Passable(db, world, px + d * (n + 1), py) do
-                n += 1
-            end
-            return n
-        end
-        local walkDir = facing or 1
-        if RunLen(walkDir) == 0 and RunLen(-walkDir) > 0 then
-            walkDir = -walkDir
-        end
-        local Ex = px + walkDir * RunLen(walkDir)
-        if Ex ~= px then
-            Clear.status = "Jalan ke ujung..."
-            Walker(Ex, py, Cancelled)
-            if Cancelled() then
-                return
-            end
-            task.wait(0.1)
-            local ax = GetTile()
-            Ex = ax or Ex
-        end
-        local startDrops = DropSet(world)
-
-        -- FASE 2: turun 1x -> sapu baris ke depan sampai ujung -> turun 1x -> sapu arah sebaliknya -> ...
-        local dir = -walkDir
-        for row = 1, H + 5 do
-            if Cancelled() then
-                return
-            end
-            if CurrentWorldName() ~= home.world then
-                Clear.status = "World berubah, berhenti"
-                Notify("Auto Clear berhenti: kamu pindah world.")
-                return
-            end
-            Clear.stats.pass = row
-            if not DownOnce() then
-                break
-            end
-            if Cancelled() then
-                return
-            end
-            SweepRow(dir)
-            dir = -dir
-            if Config.clearTake and sinceDrop >= 12 then
-                Clear.status = "Ambil item"
-                Clear.stats.picked += TakeDrops(world, startDrops, token, nil, Clear, Walker)
-                sinceDrop = 0
-            end
-        end
-
-        -- FASE 3: sisa block yang terlewat (mis. di belakang block lock) dibersihkan satu per satu
-        local list = {}
-        for y = 0, H - 1 do
-            for x = 0, W - 1 do
-                if TargetAt(x, y) then
-                    local o = (Ex - x) * walkDir
-                    local g = o // 3
-                    table.insert(list, { x = x, y = y, g = g, cx = Ex - walkDir * (3 * g + 1) })
-                end
-            end
-            if y % 20 == 0 then
-                task.wait()
-            end
-        end
-        table.sort(list, function(p, q)
-            if p.g ~= q.g then
-                return p.g < q.g
-            end
-            if p.y ~= q.y then
-                return p.y < q.y
-            end
-            return math.abs(p.x - p.cx) < math.abs(q.x - q.cx)
-        end)
-        if #list > 0 then
-            Clear.status = string.format("Sapu sisa %d tile", #list)
-        end
-
-        local function Reach(sx, sy)
-            local seen = { [sy * W + sx] = true }
-            local queue, head = { sy * W + sx }, 1
-            while head <= #queue do
-                local key = queue[head]
-                head += 1
-                local x, y = key % W, key // W
-                for _, d in ipairs(NEIGH) do
-                    local nx, ny = x + d[1], y + d[2]
-                    if InBounds(world, nx, ny) then
-                        local nk = ny * W + nx
-                        if not seen[nk] and Passable(db, world, nx, ny) then
-                            seen[nk] = true
-                            table.insert(queue, nk)
-                        end
-                    end
-                end
-                if head % 2000 == 0 then
-                    task.wait()
-                end
-            end
-            return seen
-        end
-
-        local cursor = 1
-        local function NextStand(seen)
-            while cursor <= #list and not TargetAt(list[cursor].x, list[cursor].y) do
-                cursor += 1
-            end
-            for i = cursor, #list do
-                local e = list[i]
-                local t = TargetAt(e.x, e.y)
-                if t then
-                    local stands = { { e.x, e.y - 1 }, { e.x - 1, e.y }, { e.x + 1, e.y }, { e.x, e.y + 1 } }
-                    local best, bestScore
-                    for rank, s in ipairs(stands) do
-                        if InBounds(world, s[1], s[2]) and seen[s[2] * W + s[1]]
-                            and LandingSafe(s[1], s[2] + 1) then
-                            local score = math.abs(s[1] - e.cx) * 10 + rank
-                            if not bestScore or score < bestScore then
-                                best, bestScore = s, score
-                            end
-                        end
-                    end
-                    if best then
-                        return best, t
-                    end
-                end
-            end
-            return nil, nil
-        end
-
-        local lastKey, repeats = nil, 0
-        for step = 1, 100000 do
-            if Cancelled() then
-                return
-            end
-            if #list == 0 then
-                break
-            end
-            if CurrentWorldName() ~= home.world then
-                Clear.status = "World berubah, berhenti"
-                Notify("Auto Clear berhenti: kamu pindah world.")
-                return
-            end
-            Clear.stats.pass = H + step
-
-            local cx, cy = GetTile()
-            if not cx then
-                break
-            end
-            Clear.status = "Cari posisi berikutnya..."
-            local stand, tile = NextStand(Reach(cx, cy))
-            if not stand then
-                break
-            end
-            local key = tile.x .. "," .. tile.y
-            if key == lastKey then
-                repeats += 1
             else
-                lastKey, repeats = key, 0
+                setMoveStatus(("Jalan ke (%d,%d)"):format(path[last].x, path[last].y))
+                ok = execWalk(path[last].x, path[last].y)
             end
-            if repeats >= 4 then
-                Fail(tile, 3)
-                Clear.stats.skipped += 1
-                ReportFail(db, tile.id)
-            else
-                if cx ~= stand[1] or cy ~= stand[2] then
-                    Clear.status = string.format("Jalan ke (%d,%d)", stand[1], stand[2])
-                    Walker(stand[1], stand[2], Cancelled)
-                    if Cancelled() then
-                        return
-                    end
-                    task.wait(0.08)
-                end
-                -- pukul tile target + tile lain di sekitarnya (maks N) sekaligus
-                local batch, seenKey = {}, {}
-                local function Add(t)
-                    local k2 = t.x .. "," .. t.y .. "," .. t.layer
-                    if t and not seenKey[k2] and #batch < Batch() and InRange(t.x, t.y) then
-                        seenKey[k2] = true
-                        table.insert(batch, t)
-                    end
-                end
-                local t0 = TargetAt(tile.x, tile.y)
-                if t0 then
-                    Add(t0)
-                end
-                for i = cursor, math.min(#list, cursor + 400) do
-                    if #batch >= Batch() then
-                        break
-                    end
-                    local t = TargetAt(list[i].x, list[i].y)
-                    if t then
-                        Add(t)
-                    end
-                end
-                if #batch > 0 then
-                    Clear.status = string.format("Break %d block sisa", #batch)
-                    HitTiles(batch)
-                end
-                SettledTile()
-            end
-
-            if Config.clearTake and sinceDrop >= 12 then
-                Clear.status = "Ambil item"
-                Clear.stats.picked += TakeDrops(world, startDrops, token, nil, Clear, Walker)
-                sinceDrop = 0
-            end
+        elseif e.kind == "pillar" then
+            setMoveStatus(("Naik pakai block ke (%d,%d)"):format(e.x, e.y))
+            ok = execPillar(e)
+        elseif e.kind == "fall" then
+            setMoveStatus(("Turun ke (%d,%d)"):format(e.x, e.y))
+            ok = execFall(e)
+        elseif e.kind == "jump" then
+            setMoveStatus(("Lompat ke (%d,%d)"):format(e.x, e.y))
+            ok = execJump(e)
+        elseif e.kind == "gap" then
+            setMoveStatus(("Lompati lubang ke (%d,%d)"):format(e.x, e.y))
+            ok = execGap(e)
         end
-
-        if Config.clearTake and Clear.token == token then
-            Clear.status = "Ambil sisa item"
-            local w2 = FindWorld()
-            if w2 then
-                Clear.stats.picked += TakeDrops(w2, startDrops, token, home, Clear, Walker)
-            end
-        end
-        Nav.SetInput(0, false)
-        Clear.status = "Selesai"
-        Notify(string.format("Auto Clear selesai: %d pecah, %d diambil, %d dilewati.",
-            Clear.stats.broken, Clear.stats.picked, Clear.stats.skipped))
-    end
-
-    -- Pilih mode sesuai pengaturan (default: jalan)
-    local function ClearLoop(token, home)
-        if Config.clearMode == "teleport" then
-            return TeleportClearLoop(token, home)
-        end
-        return WalkClearLoop(token, home)
-    end
-
-    -- Ambil daftar ID dari teks ("4, 112  8" -> {4, 112, 8})
-    local function ParseIds(text)
-        local ids, seen = {}, {}
-        for num in tostring(text or ""):gmatch("%d+") do
-            local id = tonumber(num)
-            if id and not seen[id] then
-                seen[id] = true
-                table.insert(ids, id)
-            end
-        end
-        return ids
-    end
-    BreakId.ParseIds = ParseIds
-
-    -- Kumpulkan tile yang ID-nya cocok dengan daftar, DAN lolos Protected
-    -- (lock/area/bedrock tetap dilewati, sama seperti Auto Clear biasa, supaya
-    -- hanya block yang benar-benar boleh kita pecah yang disentuh).
-    local function CollectById(world, db, idSet, fails)
-        local list = {}
-        for y = 0, world.h - 1 do
-            for x = 0, world.w - 1 do
-                local f = TileValue(world, "fg", x, y)
-                if f and f ~= 0 and idSet[f] and not Protected(db, f)
-                    and (fails[x .. "," .. y .. ",fg"] or 0) < 3 then
-                    table.insert(list, { x = x, y = y, id = f, layer = "fg" })
-                end
-                local b = TileValue(world, "bg", x, y)
-                if b and b ~= 0 and idSet[b] and not Protected(db, b)
-                    and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
-                    table.insert(list, { x = x, y = y, id = b, layer = "bg" })
-                end
-            end
-        end
-        table.sort(list, function(p, q)
-            if p.y ~= q.y then
-                return p.y < q.y
-            end
-            if p.y % 2 == 0 then
-                return p.x < q.x
-            end
-            return p.x > q.x
-        end)
-        return list
-    end
-
-    local function BreakIdLoop(token, home, ids, names)
-        local db = GetItemDB()
-        local hit = FindGameFn("hit")
-        local inv = FindInventory()
-        if not db or not hit then
-            BreakId.status = "Fungsi game tidak ditemukan"
-            return
-        end
-
-        local idSet = {}
-        for _, id in ipairs(ids) do
-            idSet[id] = true
-        end
-
-        local fails = {}
-        local function Fail(t, n)
-            local key = t.x .. "," .. t.y .. "," .. t.layer
-            fails[key] = (fails[key] or 0) + (n or 1)
-        end
-
-        BreakId.status = "Scan world untuk ID: " .. table.concat(names, ", ")
-        local lastLeft = nil
-        for pass = 1, 10 do
-            if BreakId.token ~= token then
-                return
-            end
-            local world = FindWorld()
-            if not world or CurrentWorldName() ~= home.world then
-                BreakId.status = "World berubah, berhenti"
-                Notify("Auto Break ID berhenti: kamu pindah world.")
-                return
-            end
-
-            local targets = CollectById(world, db, idSet, fails)
-            BreakId.stats.left = #targets
-            if pass == 1 then
-                BreakId.stats.found = #targets
-                if #targets == 0 then
-                    Notify("Tidak ada block dengan ID " .. table.concat(names, ", ") .. " di world ini (atau tertutup lock/area).")
-                else
-                    Notify(string.format("Ditemukan %d block ID %s. Mulai break.", #targets, table.concat(names, ", ")))
-                end
-            end
-            if #targets == 0 then
-                break
-            end
-
-            local okRange, range = pcall(function() return inv.buildRange() end)
-            local reach = 2
-            if okRange and type(range) == "number" then
-                reach = math.max(1, math.floor(range - 0.05))
-            end
-            reach = math.min(reach, 6)
-
-            if lastLeft and #targets >= lastLeft and pass > 3 then
-                for _, t in ipairs(targets) do
-                    Fail(t, 1)
-                end
-            end
-            lastLeft = #targets
-
-            local groups = MakeGroups(targets, math.max(1, math.floor(reach / 2)))
-            for index, group in ipairs(groups) do
-                if BreakId.token ~= token then
-                    return
-                end
-                local spot = StandingSpot(world, group, reach)
-                if not spot then
-                    for _, t in ipairs(group) do
-                        Fail(t, 1)
-                        BreakId.stats.skipped += 1
-                    end
-                else
-                    BreakId.status = string.format("Break grup %d/%d (pass %d)", index, #groups, pass)
-                    local px, py = GetTile()
-                    local reachable = true
-                    if px ~= spot.x or py ~= spot.y then
-                        reachable = Nav.Tele(spot.x, spot.y, function() return BreakId.token ~= token end)
-                        task.wait(math.max(0.03, Config.clearTpDelay))
-                    end
-                    local function InReach()
-                        local cx, cy = GetTile()
-                        if not cx then
-                            return false
-                        end
-                        for _, t in ipairs(group) do
-                            if math.abs(t.x - cx) > reach or math.abs(t.y - cy) > reach then
-                                return false
-                            end
-                        end
-                        return true
-                    end
-                    if not reachable or not InReach() then
-                        Nav.Tele(spot.x, spot.y, function() return BreakId.token ~= token end)
-                        task.wait(math.max(0.05, Config.clearTpDelay))
-                        reachable = InReach()
-                    end
-                    if not reachable then
-                        for _, t in ipairs(group) do
-                            Fail(t, 1)
-                        end
-                        BreakId.stats.skipped += #group
-                        BreakId.status = "Posisi tidak tercapai (mungkin area/lock orang lain), dicoba lagi"
-                        continue
-                    end
-                    local before = DropSet(world)
-                    local failed = BreakGroup(world, hit, group, token, BreakId)
-                    for _, t in ipairs(failed) do
-                        Fail(t, 1)
-                        BreakId.stats.skipped += 1
-                    end
-                    BreakId.stats.broken += #group - #failed
-                    if Config.clearTake and #group - #failed > 0 then
-                        task.wait(0.25)
-                        BreakId.status = "Ambil item"
-                        BreakId.stats.picked += TakeDrops(world, before, token, nil, BreakId)
-                    end
-                end
-            end
-        end
-
-        if Config.clearTake and BreakId.token == token then
-            BreakId.status = "Ambil sisa item"
-            local world = FindWorld()
-            if world then
-                BreakId.stats.picked += TakeDrops(world, nil, token, home, BreakId)
-            end
-        end
-        local world = FindWorld()
-        if world and BreakId.token == token then
-            Nav.Tele(home.x, home.y, function() return BreakId.token ~= token end)
-        end
-        BreakId.status = "Selesai"
-        Notify(string.format("Auto Break ID selesai: %d pecah, %d diambil, %d dilewati.",
-            BreakId.stats.broken, BreakId.stats.picked, BreakId.stats.skipped))
-    end
-
-    function BreakId.Stop()
-        if not BreakId.on then
+        releaseInput()
+        if not ok then
+            BadEdge[e.key] = os.clock() + 20 -- hindari jalur ini sementara
             return false
         end
-        BreakId.token += 1
-        BreakId.on = false
-        BreakId.status = "Mati"
-        return true
-    end
-
-    function BreakId.Start(text)
-        if BreakId.on then
-            return true
-        end
-        local ids = ParseIds(text or Config.breakIdText)
-        if #ids == 0 then
-            Notify("Isi dulu ID block. Contoh: " .. Config.prefix .. "breakid 4,112")
-            return false
-        end
-        local db = GetItemDB()
-        local names = {}
-        for _, id in ipairs(ids) do
-            local item = db and db[id]
-            table.insert(names, item and item.name and (item.name .. " (" .. id .. ")") or ("ID " .. id))
-        end
-        if not (FindGameFn("hit") and db) then
-            Notify("Fungsi hit game tidak ditemukan (executor perlu getgc + debug.info).")
-            return false
-        end
-        local x, y = GetGridState()
-        if not x then
-            Notify("Posisi tidak terdeteksi!")
-            return false
-        end
-        local world = FindWorld()
-        if not world or type(rawget(world, "w")) ~= "number" then
-            Notify("World tidak ditemukan.")
-            return false
-        end
-        Config.breakIdText = table.concat(ids, ",")
-        SaveConfig()
-
-        local inv = FindInventory()
-        local okRange, range = pcall(function() return inv.buildRange() end)
-        if okRange and type(range) == "number" and range < 4.5 then
-            if longhandOn then
-                StopLonghand()
-            end
-            Config.longhandRange = math.max(Config.longhandRange, 3)
-            ApplyLonghand()
-        end
-
-        local home = {
-            x = math.floor(x),
-            y = math.floor(y - 0.475),
-            world = CurrentWorldName(),
-        }
-        BreakId.token += 1
-        local token = BreakId.token
-        BreakId.on = true
-        BreakId.status = "Mulai"
-        BreakId.stats = { found = 0, broken = 0, picked = 0, skipped = 0, left = 0 }
-        task.spawn(function()
-            local ok, err = pcall(BreakIdLoop, token, home, ids, names)
-            if not ok then
-                warn(err)
-                Notify("Auto Break ID error: " .. tostring(err))
-            end
-            if BreakId.token == token then
-                BreakId.on = false
-                if BreakId.status ~= "Selesai" then
-                    BreakId.status = "Mati"
-                end
-                if RefreshHub then
-                    RefreshHub()
-                end
-            end
-        end)
-        return true
-    end
-
-    ------------------------------------------------------------------
-    -- AUTO DIRT FARM
-    -- FASE 1 (DIG)  : jalan ke ujung -> break bawah 2x -> sapu baris ke depan sampai
-    --                 ujung (block + background cave ikut hancur) -> di ujung break
-    --                 ATAS dulu -> break bawah 2x lagi -> sapu arah sebaliknya ...
-    --                 sampai paling bawah.
-    -- FASE 2        : respawn.
-    -- FASE 3 (PLACE): dari baris paling bawah: berdiri di bagian lantai yang AMAN
-    --                 (ujung yang sudah di-break dilewati supaya tidak jatuh), place
-    --                 dirt DI ATAS player sepanjang baris, teleport naik ke baris yang
-    --                 baru di-place, ulangi sampai paling atas.
-    ------------------------------------------------------------------
-    local function DirtId()
-        local id = math.floor(tonumber(Config.dirtId) or 0)
-        if id > 0 then
-            return id
-        end
-        for _, entry in ipairs(SearchItems("dirt", 40)) do
-            if entry.lower == "dirt" then
-                return entry.id
-            end
-        end
-        return nil
-    end
-    DirtFarm.ResolveId = DirtId
-
-    local function DirtFarmLoop(token, home)
-        local DF = DirtFarm
-        local db = GetItemDB()
-        local hit = FindGameFn("hit")
-        local inv = FindInventory()
-        if not db or not hit or not inv then
-            DF.status = "Fungsi game tidak ditemukan"
-            return
-        end
-        local Passable = Nav.Passable
-        if not Passable then
-            DF.status = "Fungsi path tidak ditemukan"
-            return
-        end
-        if not Nav.InputReady() then
-            DF.status = "Kontrol jalan game tidak ditemukan"
-            Notify("Auto Dirt Farm butuh kontrol analog game (getgc).")
-            return
-        end
-        local world = FindWorld()
-        if not world or type(rawget(world, "w")) ~= "number" or CurrentWorldName() ~= home.world then
-            DF.status = "World tidak ditemukan"
-            return
-        end
-        local W, H = world.w, world.h
-        local dirt = DirtId()
-        if Config.dirtPlace and not dirt then
-            DF.status = "ID dirt tidak ditemukan"
-            Notify("ID block dirt tidak ketemu. Isi manual: " .. Config.prefix .. "dirtid <id>")
-            return
-        end
-
-        table.clear(reported)
-        local function Cancelled()
-            return DF.token ~= token
-        end
-        local fails = {}
-        local function Fail(t, n)
-            local key = t.x .. "," .. t.y .. "," .. t.layer
-            fails[key] = (fails[key] or 0) + (n or 1)
-        end
-        local function Walker(x, y, cancel)
-            local ok = Nav.Walk(x, y, cancel)
-            return ok
-        end
-
-        -- tile yang boleh dipecah (fg dulu; bg/cave hanya kalau fg sudah kosong)
-        local function TargetAt(x, y)
-            if not InBounds(world, x, y) then
-                return nil
-            end
-            local f = TileValue(world, "fg", x, y)
-            if f and f ~= 0 then
-                if Protected(db, f, world) or (fails[x .. "," .. y .. ",fg"] or 0) >= 3 then
-                    return nil
-                end
-                return { x = x, y = y, id = f, layer = "fg" }
-            end
-            local b = TileValue(world, "bg", x, y)
-            if b and b ~= 0 and not Protected(db, b, world) and (fails[x .. "," .. y .. ",bg"] or 0) < 3 then
-                return { x = x, y = y, id = b, layer = "bg" }
-            end
-            return nil
-        end
-
-        -- Aman kalau jatuh dari (x, y0) ke bawah? (tidak jatuh ke lava/spike)
-        local function LandingSafe(x, y0)
-            for y = math.max(0, y0), H - 1 do
-                local f = TileValue(world, "fg", x, y)
-                if f and f ~= 0 then
-                    if IsHazard(db, f) then
-                        return false
-                    end
-                    local item = db[f]
-                    if type(item) == "table" and item.solid then
-                        return true
-                    end
-                end
-            end
-            return false
-        end
-
-        local function InRange(tx, ty)
-            local x, y = GetGridState()
-            if not x then
-                return false
-            end
-            local okR, r = pcall(function() return inv.buildRange() end)
-            r = (okR and type(r) == "number") and r or 2.5
-            return math.abs(tx + 0.5 - x) <= r - 0.05 and math.abs(ty + 0.5 - (y - 0.475)) <= r - 0.05
-        end
-
-        local sinceDrop = 0
-
-        -- pukul beberapa tile sekaligus (1 pukulan per tile per putaran) sampai hilang
-        local function HitTiles(tiles)
-            local started = os.clock()
-            local limit = 8
-            for _, t in ipairs(tiles) do
-                limit = math.max(limit, HitTimeout(world, db, t.id))
-            end
-            local failed = {}
-            while not Cancelled() do
-                local any = false
-                for _, t in ipairs(tiles) do
-                    if Alive(world, t) then
-                        any = true
-                        pcall(hit, t.x, t.y, true)
-                    end
-                end
-                if not any then
-                    break
-                end
-                if os.clock() - started > limit then
-                    for _, t in ipairs(tiles) do
-                        if Alive(world, t) then
-                            table.insert(failed, t)
-                        end
-                    end
-                    break
-                end
-                task.wait(math.max(0.03, Config.clearBreakDelay))
-            end
-            for _, t in ipairs(failed) do
-                Fail(t, 1)
-                DF.stats.skipped += 1
-                ReportFail(db, t.id)
-            end
-            local okN = #tiles - #failed
-            if not Cancelled() then
-                DF.stats.broken += okN
-                sinceDrop += okN
-            end
-            return okN
-        end
-
-        local function SettledTile()
-            local lx, ly = GetTile()
-            for _ = 1, 16 do
-                task.wait(0.05)
-                local cx, cy = GetTile()
-                if cx == lx and cy == ly then
-                    return cx, cy
-                end
-                lx, ly = cx, cy
-            end
-            return lx, ly
-        end
-
-        -- Maju ke arah d sampai ujung: pukul N block di depan (fg lalu background cave)
-        -- sekaligus, lalu jalan maju. Tidak memecah ke bawah selama menyusuri baris.
-        local function SweepRow(d)
-            local walkFails = 0
-            for _ = 1, 6000 do
-                if Cancelled() then
-                    return
-                end
-                local fx, fy = GetGridState()
-                if not fx then
-                    return
-                end
-                local px, py = math.floor(fx), math.floor(fy - 0.475)
-                local n = BatchSize()
-
-                local targets = {}
-                local own = TargetAt(px, py) -- background tile tempat berdiri
-                if own and InRange(px, py) then
-                    table.insert(targets, own)
-                end
-                for k = 1, n do
-                    local tx = px + d * k
-                    local t = TargetAt(tx, py)
-                    if t then
-                        if not InRange(tx, py) then
-                            break
-                        end
-                        table.insert(targets, t)
-                    elseif not InBounds(world, tx, py) or not Passable(db, world, tx, py) then
-                        break
-                    end
-                end
-
-                if #targets > 0 then
-                    DF.status = string.format("Break %d block depan (%d,%d)", #targets, px + d, py)
-                    HitTiles(targets)
-                else
-                    local run = 0
-                    for k = 1, n do
-                        local tx = px + d * k
-                        if InBounds(world, tx, py) and not TargetAt(tx, py)
-                            and Passable(db, world, tx, py) and LandingSafe(tx, py + 1) then
-                            run = k
-                        else
-                            break
-                        end
-                    end
-                    if run == 0 then
-                        return -- ujung baris
-                    end
-                    DF.status = string.format("Jalan maju %d tile", run)
-                    local ok = Walker(px + d * run, py, Cancelled)
-                    if Cancelled() then
-                        return
-                    end
-                    if not ok then
-                        local _, ny = GetTile()
-                        if ny == py then
-                            walkFails += 1
-                            if walkFails >= 3 then
-                                return
-                            end
-                        end
-                    end
-                    task.wait(0.03)
-                end
-            end
-        end
-
-        -- Pecah tile di bawah player SATU kali (fg lalu bg), tunggu player jatuh/menetap.
-        local function DownOnce()
-            local px, py = GetTile()
-            if not px then
-                return false
-            end
-            for _ = 1, 3 do
-                local t = TargetAt(px, py + 1)
-                if not t then
-                    break
-                end
-                if t.layer == "fg" and not LandingSafe(px, py + 2) then
-                    return false -- di bawahnya lava/spike
-                end
-                DF.status = string.format("Break bawah (%d,%d)", px, py + 1)
-                if HitTiles({ t }) < 1 then
-                    return false
-                end
-                local nx, ny = SettledTile()
-                if nx ~= px or ny ~= py then
-                    return ny > py
-                end
-            end
-            local _, ny = SettledTile()
-            if ny and ny > py then
-                return true
-            end
-            return false
-        end
-
-        -- Pecah tile di atas player (fg lalu background)
-        local function BreakAbove()
-            local px, py = GetTile()
-            if not px then
-                return
-            end
-            for _ = 1, 3 do
-                if Cancelled() then
-                    return
-                end
-                local t = TargetAt(px, py - 1)
-                if not t or not InRange(px, py - 1) then
-                    return
-                end
-                DF.status = string.format("Break atas (%d,%d)", px, py - 1)
-                if HitTiles({ t }) < 1 then
-                    return
-                end
-            end
-        end
-
-        ------------------------------------------------------------------
-        -- FASE 1: DIG
-        ------------------------------------------------------------------
-        DF.status = "Jalan ke ujung..."
-        local px, py = GetTile()
-        local _, _, facing = GetGridState()
-        if not px then
-            DF.status = "Posisi tidak terdeteksi"
-            return
-        end
-        local startRow = py
-        local startDrops = DropSet(world)
-
-        local function RunLen(d)
-            local n = 0
-            while Passable(db, world, px + d * (n + 1), py) and LandingSafe(px + d * (n + 1), py + 1) do
-                n += 1
-            end
-            return n
-        end
-        local walkDir = facing or 1
-        if RunLen(walkDir) == 0 and RunLen(-walkDir) > 0 then
-            walkDir = -walkDir
-        end
-        local Ex = px + walkDir * RunLen(walkDir)
-        if Ex ~= px then
-            Walker(Ex, py, Cancelled)
-            if Cancelled() then
-                return
-            end
-            task.wait(0.1)
-        end
-
-        local rows = {} -- baris terowongan yang disapu (atas -> bawah)
-        local dir = -walkDir
-        for _ = 1, H + 5 do
-            if Cancelled() then
-                return
-            end
-            if CurrentWorldName() ~= home.world then
-                DF.status = "World berubah, berhenti"
-                Notify("Auto Dirt Farm berhenti: kamu pindah world.")
-                return
-            end
-
-            -- break ke bawah 2x
-            local moved = 0
-            for _ = 1, 2 do
-                if Cancelled() then
-                    return
-                end
-                if not DownOnce() then
-                    break
-                end
-                moved += 1
-            end
-            if moved == 0 then
-                break -- sudah paling bawah
-            end
-
-            local _, ry = GetTile()
-            table.insert(rows, ry)
-            DF.stats.rows = #rows
-
-            -- break depan sampai ujung (background cave ikut)
-            SweepRow(dir)
-            if Cancelled() then
-                return
-            end
-
-            -- ambil drop baris ini, lalu balik ke ujung
-            if Config.clearTake and sinceDrop >= 8 then
-                DF.status = "Ambil item"
-                local ex, ey = GetTile()
-                if ex then
-                    DF.stats.picked += TakeDrops(world, startDrops, token, { x = ex, y = ey }, DF, Walker)
-                end
-                sinceDrop = 0
-                if Cancelled() then
-                    return
-                end
-            end
-
-            if moved < 2 then
-                break -- tidak bisa turun 2x lagi = paling bawah
-            end
-
-            -- di ujung: break ATAS dulu, baru turun lagi
-            BreakAbove()
-            dir = -dir
-        end
-
-        if Config.clearTake and not Cancelled() then
-            DF.status = "Ambil sisa item"
-            local w2 = FindWorld()
-            if w2 then
-                DF.stats.picked += TakeDrops(w2, startDrops, token, nil, DF, Walker)
-            end
-        end
-        if Cancelled() then
-            return
-        end
-
-        ------------------------------------------------------------------
-        -- FASE 2: RESPAWN
-        ------------------------------------------------------------------
-        DF.status = "Respawn"
-        Nav.SetInput(0, false)
-        do
-            local bx, by = GetTile()
-            local die = FindGameFn("die")
-            if die then
-                pcall(die)
-                local started = os.clock()
-                while not Cancelled() and os.clock() - started < 7 do
-                    task.wait(0.25)
-                    local cx, cy = GetTile()
-                    if cx and (cx ~= bx or cy ~= by) then
-                        break
-                    end
-                end
-                task.wait(0.6)
-            end
-            local cx, cy = GetTile()
-            if cx == bx and cy == by then
-                -- cadangan: teleport bertahap ke titik spawn world
-                local okS, sp = pcall(function() return world.spawn end)
-                if okS and typeof(sp) == "Vector2" then
-                    Nav.Tele(math.floor(sp.X), math.floor(sp.Y), Cancelled)
-                end
-            end
-        end
-        if Cancelled() then
-            return
-        end
-
-        ------------------------------------------------------------------
-        -- FASE 3: PLACE dirt dari bawah ke atas
-        ------------------------------------------------------------------
-        if Config.dirtPlace and #rows > 0 then
-            local tunnel = {}
-            for _, r in ipairs(rows) do
-                tunnel[r] = true
-            end
-
-            local function Solid(x, y)
-                if not InBounds(world, x, y) then
-                    return false
-                end
-                local id = TileValue(world, "fg", x, y)
-                if not id or id == 0 then
-                    return false
-                end
-                local item = db[id]
-                return type(item) == "table" and item.solid and not (item.hurts or item.deadly) and true or false
-            end
-            -- tempat berdiri aman = kosong + lantai solid di bawahnya
-            -- (kolom ujung yang sudah di-break tidak punya lantai -> otomatis dilewati)
-            local function StandSafe(x, y)
-                return InBounds(world, x, y) and Passable(db, world, x, y) and Solid(x, y + 1)
-            end
-            local function NearestStand(x, y)
-                for d = 0, W do
-                    if StandSafe(x - d, y) then
-                        return x - d
-                    end
-                    if StandSafe(x + d, y) then
-                        return x + d
-                    end
-                end
-                return nil
-            end
-            local function Segment(x, y)
-                local l, r = x, x
-                while StandSafe(l - 1, y) do
-                    l -= 1
-                end
-                while StandSafe(r + 1, y) do
-                    r += 1
-                end
-                return l, r
-            end
-
-            local outOfDirt = false
-            local function PlaceAbove(x, y)
-                local okR, range = pcall(function() return inv.buildRange() end)
-                local reach = math.clamp(math.floor(((okR and type(range) == "number") and range or 2.5) - 0.05), 1, 6)
-                local _, _, face = GetGridState()
-                local ty = y - 1
-                for c = x - reach, x + reach do
-                    if Cancelled() or outOfDirt then
-                        return
-                    end
-                    if InBounds(world, c, ty) and TileValue(world, "fg", c, ty) == 0 and InRange(c, ty) then
-                        local have = CountItem(dirt)
-                        if have ~= nil and have <= 0 then
-                            outOfDirt = true
-                            return
-                        end
-                        if PlaceCell(dirt, { x = c, y = ty }, face or 1) then
-                            DF.stats.placed += 1
-                        end
-                        task.wait(0.1)
-                    end
-                end
-            end
-
-            for i = #rows, 1, -1 do
-                if Cancelled() or outOfDirt then
-                    break
-                end
-                local r = rows[i]
-                local cx, cy = GetTile()
-                local x = NearestStand(cx or home.x, r)
-                if not x then
-                    DF.stats.skipped += 1
-                else
-                    -- teleport ke baris ini (lantainya = baris yang barusan di-place)
-                    if cx ~= x or cy ~= r then
-                        DF.status = string.format("Teleport ke baris %d", r)
-                        Nav.Tele(x, r, Cancelled)
-                        task.wait(math.max(0.03, Config.clearTpDelay))
-                    end
-                    if Cancelled() then
-                        return
-                    end
-
-                    -- place dirt di atas player sepanjang baris (hanya bagian lantai aman)
-                    if not tunnel[r - 1] and r - 1 > startRow then
-                        local l, rr = Segment(x, r)
-                        local gx = GetTile()
-                        gx = gx or x
-                        local a, b, step = l, rr, 3
-                        if math.abs(gx - rr) < math.abs(gx - l) then
-                            a, b, step = rr, l, -3
-                        end
-                        local c = a
-                        while not Cancelled() and not outOfDirt do
-                            DF.status = string.format("Place dirt baris %d (x %d)", r - 1, c)
-                            Walker(c, r, Cancelled)
-                            task.wait(0.05)
-                            local ax, ay = GetTile()
-                            if ax and ay == r then
-                                PlaceAbove(ax, ay)
-                            end
-                            if c == b then
-                                break
-                            end
-                            if step > 0 then
-                                c = math.min(b, c + step)
-                            else
-                                c = math.max(b, c + step)
-                            end
-                        end
-                        Nav.SetInput(0, false)
-                    end
-                end
-            end
-            if Cancelled() then
-                return
-            end
-            if outOfDirt then
-                Notify("Auto Dirt Farm: dirt habis di inventory, place berhenti.")
-            else
-                -- naik ke atas baris yang sudah di-place (paling atas)
-                local cx = GetTile()
-                local x = NearestStand(cx or home.x, startRow)
-                if x then
-                    DF.status = "Teleport ke atas"
-                    Nav.Tele(x, startRow, Cancelled)
-                end
-            end
-        end
-
-        Nav.SetInput(0, false)
-        DF.status = "Selesai"
-        Notify(string.format("Auto Dirt Farm selesai: %d baris, %d pecah, %d diambil, %d place, %d dilewati.",
-            DF.stats.rows, DF.stats.broken, DF.stats.picked, DF.stats.placed, DF.stats.skipped))
-    end
-
-    function DirtFarm.Stop()
-        if not DirtFarm.on then
-            return false
-        end
-        DirtFarm.token += 1
-        DirtFarm.on = false
-        DirtFarm.status = "Mati"
-        pcall(Nav.SetInput, 0, false)
-        return true
-    end
-
-    function DirtFarm.Start()
-        if DirtFarm.on then
-            return true
-        end
-        if Clear.on then
-            Clear.Stop()
-        end
-        if BreakId.on then
-            BreakId.Stop()
-        end
-        if farmOn then
-            StopFarm()
-        end
-        if not (FindGameFn("hit") and GetItemDB()) then
-            Notify("Fungsi hit game tidak ditemukan (executor perlu getgc + debug.info).")
-            return false
-        end
-        local x, y = GetGridState()
-        if not x then
-            Notify("Posisi tidak terdeteksi!")
-            return false
-        end
-        local world = FindWorld()
-        if not world or type(rawget(world, "w")) ~= "number" then
-            Notify("World tidak ditemukan.")
-            return false
-        end
-        if Config.dirtPlace and not DirtId() then
-            Notify("ID block dirt tidak ketemu. Isi manual: " .. Config.prefix .. "dirtid <id>")
-            return false
-        end
-        -- jangkauan: beberapa block di depan harus terjangkau (mode jalan)
-        local inv = FindInventory()
-        local okRange, range = pcall(function() return inv.buildRange() end)
-        if okRange and type(range) == "number" and range < 4.0 then
-            if longhandOn then
-                StopLonghand()
-            end
-            Config.longhandRange = math.max(Config.longhandRange, 1.5)
-            ApplyLonghand()
-        end
-
-        local home = {
-            x = math.floor(x),
-            y = math.floor(y - 0.475),
-            world = CurrentWorldName(),
-        }
-        DirtFarm.token += 1
-        local token = DirtFarm.token
-        DirtFarm.on = true
-        DirtFarm.status = "Mulai"
-        DirtFarm.stats = { rows = 0, broken = 0, picked = 0, placed = 0, skipped = 0 }
-        task.spawn(function()
-            local ok, err = pcall(DirtFarmLoop, token, home)
-            if not ok then
-                warn(err)
-                Notify("Auto Dirt Farm error: " .. tostring(err))
-            end
-            if DirtFarm.token == token then
-                DirtFarm.on = false
-                if DirtFarm.status ~= "Selesai" then
-                    DirtFarm.status = "Mati"
-                end
-                pcall(Nav.SetInput, 0, false)
-                if RefreshHub then
-                    RefreshHub()
-                end
-            end
-        end)
-        return true
-    end
-
-    function Clear.Stop()
-        if not Clear.on then
-            return false
-        end
-        Clear.token += 1
-        Clear.on = false
-        Clear.status = "Mati"
-        return true
-    end
-
-    function Clear.Start()
-        if Clear.on then
-            return true
-        end
-        if DirtFarm.on then
-            DirtFarm.Stop()
-        end
-        if farmOn then
-            StopFarm()
-        end
-        if not (FindGameFn("hit") and GetItemDB()) then
-            Notify("Fungsi hit game tidak ditemukan (executor perlu getgc + debug.info).")
-            return false
-        end
-        local x, y = GetGridState()
-        if not x then
-            Notify("Posisi tidak terdeteksi!")
-            return false
-        end
-        local world = FindWorld()
-        if not world or type(rawget(world, "w")) ~= "number" then
-            Notify("World tidak ditemukan.")
-            return false
-        end
-        -- Mode teleport: Longhand otomatis supaya 4 tile sekaligus terjangkau
-        local inv = FindInventory()
-        local okRange, range = pcall(function() return inv.buildRange() end)
-        if Config.clearMode == "teleport" and okRange and type(range) == "number" and range < 4.5 then
-            if longhandOn then
-                StopLonghand()
-            end
-            Config.longhandRange = math.max(Config.longhandRange, 3)
-            ApplyLonghand()
-        elseif Config.clearMode ~= "teleport" and okRange and type(range) == "number" and range < 4.0 then
-            -- mode jalan: 3 block di depan harus terjangkau
-            if longhandOn then
-                StopLonghand()
-            end
-            Config.longhandRange = math.max(Config.longhandRange, 1.5)
-            ApplyLonghand()
-        end
-
-        local home = {
-            x = math.floor(x),
-            y = math.floor(y - 0.475),
-            world = CurrentWorldName(),
-        }
-        Clear.token += 1
-        local token = Clear.token
-        Clear.on = true
-        Clear.status = "Mulai"
-        Clear.stats = { scanned = 0, broken = 0, picked = 0, skipped = 0, left = 0, pass = 0 }
-        task.spawn(function()
-            local ok, err = pcall(ClearLoop, token, home)
-            if not ok then
-                warn(err)
-                Notify("Auto Clear error: " .. tostring(err))
-            end
-            if Clear.token == token then
-                Clear.on = false
-                if Clear.status ~= "Selesai" then
-                    Clear.status = "Mati"
-                end
-                if RefreshHub then
-                    RefreshHub()
-                end
-            end
-        end)
-        return true
-    end
-end
-
-----------------------------------------------------------------------
--- AUTO QUEST
--- Modul quest game (QuestsUI) tidak ada di growblox.lua, jadi skrip ini
--- membaca jendela quest dari layar: cari baris progres "x/y", klik tombol
--- claim, lalu kerjakan quest break/place lewat Auto Farm.
--- Quest yang tidak bisa dikenali dilewati. Ketik /aq scan untuk lihat hasil baca.
-----------------------------------------------------------------------
-local questToken = 0
-
-local function IsShown(obj)
-    local current = obj
-    while current and current ~= PlayerGui do
-        if current:IsA("GuiObject") and not current.Visible then
-            return false
-        end
-        if current:IsA("ScreenGui") and not current.Enabled then
-            return false
-        end
-        current = current.Parent
+        i = last + 1
     end
     return true
 end
 
-local function CleanText(text)
-    return (tostring(text):gsub("<[^>]+>", ""))
+-- Cari jalan ke grup target, lalu jalan ke sana
+local function travelGroup(sx, sy, group, R, useBlock, skipTbl, failTbl)
+    local w = Refs.World
+    local goals = {}
+    for _, t in ipairs(group) do goals[t.idx] = true end
+    local first = group[1]
+    setMoveStatus(("Cari jalan A* ke (%d,%d)"):format(first.x, first.y))
+    local path, exhausted, closed = astar(sx, sy, goals, first.x, first.y, R, useBlock)
+    if path then
+        if #path == 0 then
+            for _, t in ipairs(group) do skipTile(skipTbl, t.idx, 20) end
+        elseif not followPath(path) then
+            failTbl[first.idx] = (failTbl[first.idx] or 0) + 1
+            if failTbl[first.idx] >= 3 then
+                for _, t in ipairs(group) do skipTile(skipTbl, t.idx, 40) end
+            end
+        end
+        releaseInput()
+        return true
+    end
+    -- tidak ada jalan ke grup ini
+    for _, t in ipairs(group) do skipTile(skipTbl, t.idx, exhausted and 60 or 30) end
+    if exhausted and w then storeReach(sy * w.w + sx, R, useBlock, closed) end
+    releaseInput()
+    return false
 end
 
-local function ClickGui(button)
-    local clicked = false
-    if getconnections then
-        for _, signalName in ipairs({ "MouseButton1Click", "Activated", "MouseButton1Down", "MouseButton1Up" }) do
-            local okSignal, conns = pcall(function()
-                return getconnections(button[signalName])
-            end)
-            if okSignal and type(conns) == "table" then
-                for _, conn in ipairs(conns) do
-                    if pcall(function() conn:Fire() end) then
-                        clicked = true
+local function autoBegin()
+    AutoInput.active = true
+    releaseInput()
+    Reach = nil
+    if Misc.Ghost then
+        setGhost(false) -- fly dimatikan (kena rollback)
+        if UI.GhostToggle then pcall(function() UI.GhostToggle:Set(false) end) end
+    end
+end
+
+local function autoEnd()
+    if Clear.Running or Farmer.Running or Splice.Roaming or Pabrik.Running or Build.Running or Move.Homing then
+        return
+    end
+    AutoInput.active = false
+    releaseInput()
+end
+
+local function blockText(useBlock, id)
+    if not useBlock then return "mati" end
+    if not id then return "belum dipilih" end
+    local n = invCount(id)
+    return itemName(id) .. " x" .. n .. (n <= 0 and " (habis)" or "")
+end
+
+---------------------------------------------------------------------
+-- CLEAR WORLD: bersihkan dari baris atas ke bawah, 2 baris sekali sapu
+---------------------------------------------------------------------
+-- Boleh dipecah? (lock, vending, display tidak disentuh)
+local function clearCanBreak(id)
+    if not id or id == 0 then return false end
+    local it = ItemDB[id]
+    if not it then return false end
+    if it.lock or it.area or it.guildLock or it.vend or it.display then return false end
+    local h = (it.kind == "seed") and 20 or it.hits
+    if type(h) == "number" and h > 0 then return true end
+    local w = Refs.World
+    return (it.staffHits and w and w.areas and w.areas.staff) and true or false
+end
+
+-- Layer yang dipecah: fg dulu, lalu bg
+local function clearLayerAt(x, y)
+    local w = Refs.World
+    local sp = w and w.spawn
+    if sp ~= nil and (typeof(sp) == "Vector2" or type(sp) == "table") and x == sp.X and y == sp.Y then
+        return nil
+    end
+    local fg = tileAt("fg", x, y)
+    if fg == nil then return nil end
+    if fg ~= 0 then
+        if clearCanBreak(fg) then return "fg", fg end
+        return nil -- fg tidak bisa dipecah, bg juga tidak
+    end
+    if Clear.IncludeBg then
+        local bg = tileAt("bg", x, y)
+        if bg and bg ~= 0 and clearCanBreak(bg) then return "bg", bg end
+    end
+    return nil
+end
+
+-- Cari baris paling atas yang masih ada block
+local function scanTopRow()
+    local w = Refs.World
+    local W, H = w.w, w.h
+    local now = os.clock()
+    for y = 0, H - 1 do
+        local frow, brow = w.fg[y], w.bg[y]
+        for x = 0, W - 1 do
+            local fid = frow and frow[x] or 0
+            local bid = brow and brow[x] or 0
+            if (fid ~= 0 or (Clear.IncludeBg and bid ~= 0)) and clearLayerAt(x, y)
+                and not skipped(Clear.Skip, y * W + x, now) then
+                return y
+            end
+        end
+    end
+    return nil
+end
+
+local function countRemaining()
+    local w = Refs.World
+    if not w then return -1 end
+    local W, H = w.w, w.h
+    local n, scanned = 0, 0
+    for y = 0, H - 1 do
+        local frow, brow = w.fg[y], w.bg[y]
+        for x = 0, W - 1 do
+            local fid = frow and frow[x] or 0
+            local bid = brow and brow[x] or 0
+            if (fid ~= 0 or (Clear.IncludeBg and bid ~= 0)) and clearLayerAt(x, y) then n += 1 end
+        end
+        scanned += W
+        if scanned >= 8000 then
+            scanned = 0
+            task.wait()
+        end
+    end
+    return n
+end
+
+-- Arah sapu. Zig-zag: arah dipilih sekali per baris (dari ujung terdekat),
+-- lalu dipegang sampai baris selesai supaya tidak bolak-balik.
+local function bandDir(topRow, s)
+    if Clear.Sweep ~= "Zig-zag" then return 1 end
+    if Clear.DirRow == topRow and Clear.Dir then return Clear.Dir end
+    local w = Refs.World
+    local now = os.clock()
+    local minX, maxX
+    for y = topRow, math.min(topRow + 1, w.h - 1) do
+        for x = 0, w.w - 1 do
+            if clearLayerAt(x, y) and not skipped(Clear.Skip, y * w.w + x, now) then
+                if not minX or x < minX then minX = x end
+                if not maxX or x > maxX then maxX = x end
+            end
+        end
+    end
+    local dir = 1
+    if minX and maxX and abs(s.x - maxX) < abs(s.x - minX) then dir = -1 end
+    Clear.DirRow, Clear.Dir = topRow, dir
+    return dir
+end
+
+-- Semua target di baris ini, urut sesuai arah sapu.
+-- Tile yang tidak terjangkau langsung dilewati.
+local function bandTargets(top, bottom, dir, filter)
+    local w = Refs.World
+    local W = w.w
+    local list = {}
+    local now = os.clock()
+    for y = top, math.min(bottom, w.h - 1) do
+        for x = 0, W - 1 do
+            local idx = y * W + x
+            if clearLayerAt(x, y) and not skipped(Clear.Skip, idx, now) then
+                if filter and not filter[idx] then
+                    skipTile(Clear.Skip, idx, 60) -- di seberang jurang / tidak ada jalan
+                elseif canWorkAt(x, y) then
+                    list[#list + 1] = { x = x, y = y, idx = idx }
+                else
+                    skipTile(Clear.Skip, idx, 300) -- tidak ada izin
+                end
+            end
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.x ~= b.x then return a.x * dir < b.x * dir end
+        return a.y < b.y
+    end)
+    return list
+end
+
+-- Tile yang bisa dipukul dari sini. Pijakan kaki dipecah paling akhir.
+local function clearInReach(s, bottom, dir)
+    local w = Refs.World
+    local W = w.w
+    local R = punchReach() - 0.08
+    local cx, cy = s.x, s.y - 0.475
+    local footRow = floor(s.y + 0.01)
+    local colA, colB = floor(s.x - 0.3), floor(s.x + 0.3 - 0.0001)
+    local now = os.clock()
+    local list = {}
+    for ty = math.max(0, floor(cy - R - 0.5)), math.min(floor(cy + R + 0.5), bottom, w.h - 1) do
+        for tx = math.max(0, floor(cx - R - 0.5)), math.min(floor(cx + R + 0.5), W - 1) do
+            if stateReaches(s, tx, ty, R) then
+                local idx = ty * W + tx
+                if not skipped(Clear.Skip, idx, now) and clearLayerAt(tx, ty) then
+                    if canWorkAt(tx, ty) then
+                        list[#list + 1] = {
+                            x = tx, y = ty, idx = idx,
+                            support = (ty == footRow and tx >= colA and tx <= colB),
+                        }
+                    else
+                        skipTile(Clear.Skip, idx, 300)
                     end
                 end
             end
         end
     end
-    if not clicked and firesignal then
-        clicked = pcall(firesignal, button.MouseButton1Click)
-    end
-    return clicked
+    table.sort(list, function(a, b)
+        if a.support ~= b.support then return not a.support end
+        if a.x ~= b.x then return a.x * dir < b.x * dir end
+        return a.y < b.y
+    end)
+    return list
 end
 
-local function ButtonText(button)
-    local texts = {}
-    if button:IsA("TextButton") and button.Text ~= "" then
-        table.insert(texts, button.Text)
+-- Kalau pijakan dipecah, jatuh berapa tile? (nil = jatuh ke lava/duri)
+local function fallAfterBreak(s, x, footRow)
+    local colA, colB = floor(s.x - 0.3), floor(s.x + 0.3 - 0.0001)
+    for c = colA, colB do
+        if c ~= x and (solidAt(c, footRow) or platformAt(c, footRow)) then return 0 end -- masih menapak kolom lain
     end
-    for _, child in ipairs(button:GetDescendants()) do
-        if (child:IsA("TextLabel") or child:IsA("TextButton")) and child.Text ~= "" then
-            table.insert(texts, child.Text)
+    local w = Refs.World
+    for y = footRow + 1, math.min(w.h - 1, footRow + 60) do
+        if hazardAt(x, y) then return nil end
+        if solidAt(x, y) or platformAt(x, y) then return y - footRow end
+    end
+    return 60
+end
+
+-- Pukul satu tile sampai bersih (fg lalu bg)
+local function clearBreakTile(t)
+    local x, y, idx = t.x, t.y, t.idx
+    local layer, id = clearLayerAt(x, y)
+    if not layer then return end
+    local hits, maxHits = 0, hitsNeeded(id) * 3 + 6
+    while Clear.Running and alive() do
+        layer, id = clearLayerAt(x, y)
+        if not layer then return end
+        local r = tryBreak(x, y, Clear.IncludeBg)
+        if r == nil then
+            skipTile(Clear.Skip, idx, 60)
+            return
+        end
+        if r == "broke" then
+            Clear.Broken += 1
+            Clear.Status = "Pecah " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+            BreakTimes[idx] = (BreakTimes[idx] or 0) + 1
+            if BreakTimes[idx] > 6 then -- server terus mengembalikan tile ini
+                skipTile(Clear.Skip, idx, 120)
+                return
+            end
+            hits = 0
+            local _, nid = clearLayerAt(x, y)
+            if nid then maxHits = hitsNeeded(nid) * 3 + 6 end
+        else
+            hits += 1
+            Clear.Status = "Pukul " .. itemName(id) .. " (" .. x .. "," .. y .. ")"
+            if hits > maxHits then
+                skipTile(Clear.Skip, idx, 45)
+                return
+            end
+        end
+        if not waitAuto(State.BreakMs) then return end
+        if r == "broke" then
+            local s = playerState()
+            if not s or not s.grounded then return end -- jatuh, cek ulang posisi
         end
     end
-    return CleanText(table.concat(texts, " ")):lower()
 end
 
--- Jendela quest = frame ukuran jendela yang memuat teks "quest"
-local function FindQuestRoot()
-    local viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(800, 600)
-    local best, bestCount = nil, 0
-    for _, gui in ipairs(PlayerGui:GetChildren()) do
-        if gui.Name ~= "PeexHubGB" and gui:IsA("ScreenGui") then
-            for _, obj in ipairs(gui:GetDescendants()) do
-                if obj:IsA("TextLabel") and obj.Text ~= "" and IsShown(obj)
-                    and CleanText(obj.Text):lower():find("quest", 1, true) then
-                    local root = obj
-                    while root.Parent and root.Parent:IsA("GuiObject") do
-                        local size = root.Parent.AbsoluteSize
-                        if size.X >= viewport.X * 0.95 and size.Y >= viewport.Y * 0.95 then
-                            break
+local function clearBreakList(list, s0)
+    local footY = floor(s0.y - 0.475)
+    local R = punchReach() - 0.08
+    local done = 0
+    for _, t in ipairs(list) do
+        if not Clear.Running or not alive() then break end
+        local s = playerState()
+        if not s or s.dead or not stateReaches(s, t.x, t.y, R) then break end
+        if not s.grounded or floor(s.y - 0.475) ~= footY then break end
+        local skipIt = false
+        if t.support then
+            local d = fallAfterBreak(s, t.x, floor(s.y + 0.01))
+            if d == nil then
+                skipIt = true
+                Clear.Status = ("Lewati (%d,%d): di bawahnya berbahaya"):format(t.x, t.y)
+            elseif d > 3 then
+                -- di bawahnya jurang: pecah nanti dari samping
+                skipIt = true
+                Clear.Status = ("Lewati pijakan (%d,%d): di bawahnya jurang"):format(t.x, t.y)
+            end
+        end
+        if skipIt then
+            skipTile(Clear.Skip, t.idx, 20)
+        else
+            clearBreakTile(t)
+            done += 1
+        end
+    end
+    return done
+end
+
+local lastClearText = nil
+local function updateClearStatus()
+    if not UI.ClearStatus then return end
+    local txt = "Status   : " .. (Clear.Running and "JALAN" or "BERHENTI")
+        .. "\nBaris    : " .. (Clear.TopRow >= 0 and (Clear.TopRow .. "-" .. (Clear.TopRow + 1)) or "-")
+        .. "  | arah: " .. ((Clear.Dir == -1 and Clear.Sweep == "Zig-zag") and "kanan→kiri" or "kiri→kanan")
+        .. "\nDipecah  : " .. Clear.Broken .. "  | collect: " .. State.Collected
+        .. "\nSisa     : " .. (Clear.Remaining >= 0 and tostring(Clear.Remaining) or "-")
+        .. "  | dilewati: " .. skippedCount(Clear.Skip)
+        .. "\nPijakan  : " .. blockText(Clear.UseBlock, Clear.ScaffoldId) .. "  | dipasang: " .. Move.Placed
+        .. "\nAksi     : " .. Clear.Status
+    if txt == lastClearText then return end
+    lastClearText = txt
+    task.defer(function()
+        pcall(function() UI.ClearStatus:SetDesc(txt) end)
+    end)
+end
+
+local function clearLoop()
+    local idle, lastUi, lastCount = 0, 0, -10
+    while Clear.Running and alive() do
+        task.wait()
+        local now = os.clock()
+        if now - lastCount > 3 then
+            lastCount = now
+            Clear.Remaining = countRemaining()
+            if not Clear.Running or not alive() then break end
+        end
+        if now - lastUi > 0.5 then
+            lastUi = now
+            updateClearStatus()
+        end
+        local w = Refs.World
+        local s = playerState()
+        if not w or not s or s.dead then
+            releaseInput()
+            Clear.Status = "Menunggu karakter / world..."
+            task.wait(0.5)
+            continue
+        end
+        if not s.grounded then
+            releaseInput() -- masih di udara, tunggu mendarat
+            continue
+        end
+        releaseInput()
+
+        local topRow = scanTopRow()
+        if not topRow then
+            local remaining = countRemaining()
+            Clear.Remaining = remaining
+            if remaining == 0 then
+                stopClear("World sudah bersih!")
+                return
+            end
+            idle += 1
+            if idle >= 3 then
+                stopClear(("Selesai. Sisa %d tile tidak bisa dijangkau / dipecah"):format(remaining))
+                return
+            end
+            Clear.Status = ("Sisa %d tile dilewati, coba ulang (%d/3)..."):format(remaining, idle)
+            updateClearStatus()
+            table.clear(Clear.Skip)
+            table.clear(ClearFail)
+            table.clear(BadEdge)
+            Reach = nil
+            if not waitAuto(2000) then break end
+            continue
+        end
+
+        Clear.TopRow = topRow
+        local bottom = topRow + 1 -- 2 baris dibersihkan dulu sebelum turun
+        local dir = bandDir(topRow, s)
+
+        -- 1) Pecahkan yang terjangkau
+        local list = clearInReach(s, bottom, dir)
+        if #list > 0 then
+            if clearBreakList(list, s) > 0 then idle = 0 end
+            continue
+        end
+
+        -- 2) Jalan ke bagian berikutnya
+        local R = punchReach() - 0.35
+        local useBlock = scaffoldId() ~= nil
+        local sx, sy = startNode(s)
+        local band = bandTargets(topRow, bottom, dir, reachFilter(sy * w.w + sx, R, useBlock))
+        if #band > 0 then
+            -- tujuan: 5 kolom berikutnya sesuai arah sapu
+            local group = {}
+            for _, t in ipairs(band) do
+                if (t.x - band[1].x) * dir <= 4 then group[#group + 1] = t end
+            end
+            travelGroup(sx, sy, group, R, useBlock, Clear.Skip, ClearFail)
+        end
+    end
+    releaseInput()
+end
+
+local function setClearVisual()
+    if UI.ClearToggle then pcall(function() UI.ClearToggle:Set(Clear.Running) end) end
+end
+
+stopClear = function(reason)
+    Clear.Running = false
+    autoEnd()
+    setClearVisual()
+    Clear.Status = reason or "Dihentikan"
+    if reason then
+        notify("Auto Clear", reason, 5)
+        if not string.find(reason, "^Dihentikan") then Hook.send("stop", "Auto Clear berhenti: " .. reason) end
+    end
+    updateClearStatus()
+end
+
+local function checkAutoStart()
+    if not Refs.World then return "Data world belum ketemu. Tekan 'Hubungkan ke game'" end
+    if not Refs.Punch then return "Fungsi pukul game belum ketemu. Tekan 'Hubungkan ke game'" end
+    if not OrigIsDown then return "Kontrol gerak game (WorldMenu.isDown) tidak ketemu" end
+    if not playerState() then return "Kamu belum masuk world" end
+    return nil
+end
+
+local function startClear()
+    if Clear.Running then return end
+    local err = checkAutoStart()
+    if err then
+        notify("Auto Clear", err, 4)
+        setClearVisual()
+        return
+    end
+    if Clear.UseBlock and (not Clear.ScaffoldId or invCount(Clear.ScaffoldId) <= 0) then
+        notify("Auto Clear", "Block pijakan belum dipilih / habis: jalan tanpa block pijakan", 5)
+    end
+    if Splice.Running and Splice.stop then Splice.stop("Dihentikan karena Auto Clear dimulai") end
+    if Pabrik.Running and Pabrik.stop then Pabrik.stop("Dihentikan karena Auto Clear dimulai") end
+    if Build.Running and Build.stop then Build.stop("Dihentikan karena Auto Clear dimulai") end
+    if State.Running then stopFarm("Dihentikan karena Auto Clear dimulai") end
+    if Farmer.Running then stopFarmer("Dihentikan karena Auto Clear dimulai") end
+    table.clear(Clear.Skip)
+    table.clear(ClearFail)
+    table.clear(BadEdge)
+    table.clear(BreakTimes)
+    Clear.Broken = 0
+    Clear.Remaining = -1
+    Clear.TopRow = -1
+    Clear.DirRow, Clear.Dir = nil, nil
+    Clear.Status = "Mulai..."
+    Clear.Running = true
+    autoBegin()
+    setClearVisual()
+    updateClearStatus()
+    task.spawn(function()
+        local ok, e = pcall(clearLoop)
+        if not ok then
+            warn("[Fian792] Auto Clear error: " .. tostring(e))
+            if Clear.Running then stopClear("Error: " .. tostring(e)) end
+        end
+    end)
+end
+
+---------------------------------------------------------------------
+-- FARMER: panen pohon yang siap + tanam seed
+---------------------------------------------------------------------
+-- Pohon siap kalau: waktu server >= waktu tanam + lama tumbuh (sama dengan game).
+-- Seed ditanam di tile kosong yang di bawahnya ada block.
+local function findTreeRefs()
+    Refs.Trees = nil
+    local ev = WorldRemotes:FindFirstChild("TreeChanged")
+    if not (ev and getconnections) then return false end
+    local ok, conns = pcall(getconnections, ev.OnClientEvent)
+    if not ok or type(conns) ~= "table" then return false end
+    for _, c in ipairs(conns) do
+        local okf, fn = pcall(function() return c.Function end)
+        if okf and type(fn) == "function" then
+            local ups = getUpvalues(fn)
+            local cands = {}
+            for i = 1, 12 do
+                local u = ups[i]
+                if type(u) == "table" and u ~= Refs.World and rawget(u, "fg") == nil then
+                    cands[#cands + 1] = u
+                end
+            end
+            -- cari tabel pohon (isinya waktu tanam)
+            for _, t in ipairs(cands) do
+                local _, v = next(t)
+                if type(v) == "table" and type(rawget(v, "p")) == "number" then
+                    Refs.Trees = t
+                    break
+                end
+            end
+            if not Refs.Trees then
+                for _, t in ipairs(cands) do
+                    if next(t) == nil then
+                        Refs.Trees = t
+                        break
+                    end
+                end
+            end
+        end
+        if Refs.Trees then break end
+    end
+    return Refs.Trees ~= nil
+end
+
+local function farmReach()
+    return math.min(punchReach(), buildReach())
+end
+
+local function seedCount()
+    return Farmer.SeedId and invCount(Farmer.SeedId) or 0
+end
+
+-- Kapan pohon ini siap panen (nil = bukan pohon)
+local function treeReadyAt(x, y, id)
+    local trees, w = Refs.Trees, Refs.World
+    if not trees or not w then return nil end
+    local it = ItemDB[id]
+    if not (it and it.kind == "seed") then return nil end
+    local t = trees[y * w.w + x]
+    if type(t) ~= "table" or type(t.p) ~= "number" then return nil end
+    return t.p + (it.grow or 0)
+end
+
+-- Bisa tanam seed di sini? (seedId kosong = seed Farmer)
+local function plantSpotOk(x, y, seedId)
+    local w = Refs.World
+    if not w or x < 0 or y < 0 or x >= w.w or y + 1 >= w.h then return false end
+    if fgIdAt(x, y) ~= 0 then return false end
+    local below = fgIdAt(x, y + 1)
+    if below == 0 then return false end
+    local it = ItemDB[below]
+    if not it or it.kind == "seed" then return false end
+    if not (solidAt(x, y + 1) or it.platform) then return false end
+    local ok, res = pcall(function()
+        if w.areas and type(w.areas.canEdit) == "function" and not w.areas.canEdit(x, y) then return false end
+        if type(w.builderOk) == "function" and not w.builderOk(x, y, true) then return false end
+        local sid = seedId or Farmer.SeedId
+        local seed = sid and ItemDB[sid]
+        if seed and type(w.needsWay) == "function" and w.needsWay(seed)
+            and type(w.wayBlocked) == "function" and w.wayBlocked(x, y) then
+            return false
+        end
+        return true
+    end)
+    return (not ok) or res
+end
+
+-- Mesin panen & tanam dipakai bersama oleh Farmer dan Pabrik.
+-- FC = pengaturan yang sedang dipakai (seed, area, kecepatan, dll).
+local FC = nil
+local function farmerCfg()
+    return {
+        run = function() return Farmer.Running end,
+        harvest = Farmer.Harvest,
+        plant = Farmer.Plant,
+        seed = Farmer.SeedId,
+        skip = Farmer.Skip,
+        hms = Farmer.HarvestMs,
+        pms = Farmer.PlantMs,
+        area = nil,      -- function(x, y): boleh panen di sini?
+        plantSet = nil,  -- [idx] = true: hanya tanam di tile ini
+        exclude = nil,   -- [idx] = true: jangan tanam di tile ini
+        status = function(t) Farmer.Status = t end,
+        onHarvest = function() Farmer.Harvested += 1 end,
+        onPlant = function() Farmer.Planted += 1 end,
+    }
+end
+
+local function fcSeeds()
+    return FC.seed and invCount(FC.seed) or 0
+end
+
+local function fcHarvestOk(x, y)
+    return FC.harvest and (not FC.area or FC.area(x, y))
+end
+
+local function fcPlantOk(idx)
+    return (not FC.plantSet or FC.plantSet[idx]) and not (FC.exclude and FC.exclude[idx])
+end
+
+local function plantSeed(x, y)
+    local id = FC.seed
+    if not id or invCount(id) <= 0 then return false end
+    sendSetTile("fg", x, y, id)
+    if Refs.Inv then pcall(function() Refs.Inv:remove(id, 1) end) end
+    FC.onPlant()
+    FC.status("Tanam " .. itemName(id) .. " (" .. x .. "," .. y .. ")")
+    return true
+end
+
+-- Panen & tanam semua yang terjangkau dari sini
+local function farmerWorkInReach(s)
+    local w = Refs.World
+    local W = w.w
+    local R = farmReach() - 0.08
+    local cx, cy = s.x, s.y - 0.475
+    local now = os.clock()
+    local st = workspace:GetServerTimeNow()
+    local doPlant = FC.plant and fcSeeds() > 0
+    local harvest, plant = {}, {}
+    for ty = math.max(0, floor(cy - R - 0.5)), math.min(floor(cy + R + 0.5), w.h - 1) do
+        for tx = math.max(0, floor(cx - R - 0.5)), math.min(floor(cx + R + 0.5), W - 1) do
+            if stateReaches(s, tx, ty, R) then
+                local idx = ty * W + tx
+                if not skipped(FC.skip, idx, now) then
+                    local id = fgIdAt(tx, ty)
+                    if id ~= 0 and fcHarvestOk(tx, ty) then
+                        local ra = treeReadyAt(tx, ty, id)
+                        if ra and st >= ra then
+                            if canWorkAt(tx, ty) then
+                                harvest[#harvest + 1] = { x = tx, y = ty, idx = idx }
+                            else
+                                skipTile(FC.skip, idx, 120)
+                            end
                         end
-                        root = root.Parent
-                    end
-                    local count = #root:GetDescendants()
-                    if count > bestCount then
-                        best, bestCount = root, count
+                    elseif doPlant and id == 0 and fcPlantOk(idx) and plantSpotOk(tx, ty, FC.seed) then
+                        plant[#plant + 1] = { x = tx, y = ty, idx = idx }
                     end
                 end
             end
+        end
+    end
+    local function byX(a, b)
+        if a.x ~= b.x then return a.x < b.x end
+        return a.y < b.y
+    end
+    table.sort(harvest, byX)
+    table.sort(plant, byX)
+
+    local done = 0
+    for _, t in ipairs(harvest) do
+        if not FC.run() or not alive() then return done end
+        local cur = playerState()
+        if not cur or not stateReaches(cur, t.x, t.y, R) then return done end
+        local id = fgIdAt(t.x, t.y)
+        local r = tryBreak(t.x, t.y, false) -- pohon siap: 1 pukulan = panen
+        if r == "broke" then
+            FC.onHarvest()
+            FC.status("Panen " .. itemName(id) .. " (" .. t.x .. "," .. t.y .. ")")
+        else
+            skipTile(FC.skip, t.idx, 30)
+        end
+        done += 1
+        if not waitAuto(FC.hms) then return done end
+    end
+    for _, t in ipairs(plant) do
+        if not FC.run() or not alive() then return done end
+        if fcSeeds() <= 0 then break end
+        local cur = playerState()
+        if not cur or not stateReaches(cur, t.x, t.y, R) then return done end
+        if fgIdAt(t.x, t.y) == 0 then
+            if not plantSeed(t.x, t.y) then break end
+            done += 1
+            if not waitAuto(FC.pms) then return done end
+        end
+    end
+    return done
+end
+
+-- Cari target terdekat + kapan pohon berikutnya siap
+local function farmerScan(px, py, maxN, filter)
+    local w = Refs.World
+    local W, H = w.w, w.h
+    local best = {}
+    local now = os.clock()
+    local st = workspace:GetServerTimeNow()
+    local nextReady = nil
+    local doPlant = FC.plant and fcSeeds() > 0
+    local scanned = 0
+    for y = 0, H - 1 do
+        local frow, below = w.fg[y], w.fg[y + 1]
+        for x = 0, W - 1 do
+            local id = frow and frow[x] or 0
+            local kind = nil
+            if id ~= 0 then
+                if fcHarvestOk(x, y) then
+                    local ra = treeReadyAt(x, y, id)
+                    if ra then
+                        if st >= ra then
+                            kind = "harvest"
+                        elseif not nextReady or ra - st < nextReady then
+                            nextReady = ra - st
+                        end
+                    end
+                end
+            elseif doPlant then
+                local b = below and below[x] or 0
+                if b ~= 0 and fcPlantOk(y * W + x) then kind = "plant" end
+            end
+            if kind then
+                local idx = y * W + x
+                if not skipped(FC.skip, idx, now) then
+                    if filter and not filter[idx] then
+                        skipTile(FC.skip, idx, 60)
+                    else
+                        local dx, dy = x - px, (y - py) * 1.3
+                        local d = dx * dx + dy * dy - ((kind == "harvest") and 4 or 0) -- panen sedikit diutamakan
+                        if #best < maxN or d < best[#best].d then
+                            local ok
+                            if kind == "harvest" then ok = canWorkAt(x, y) else ok = plantSpotOk(x, y, FC.seed) end
+                            if ok then
+                                local pos = #best + 1
+                                while pos > 1 and best[pos - 1].d > d do pos -= 1 end
+                                table.insert(best, pos, { x = x, y = y, idx = idx, d = d, kind = kind })
+                                if #best > maxN then best[#best] = nil end
+                            else
+                                skipTile(FC.skip, idx, 120)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        scanned += W
+        if scanned >= 6000 then
+            scanned = 0
+            task.wait()
+            if not FC.run() or not alive() then break end
+        end
+    end
+    return best, nextReady
+end
+
+local lastFarmerText = nil
+local function updateFarmerStatus()
+    if not UI.FarmerStatus then return end
+    local seed = Farmer.SeedId
+    local txt = "Status  : " .. (Farmer.Running and "JALAN" or "BERHENTI")
+        .. "\nPanen   : " .. Farmer.Harvested .. "  | tanam: " .. Farmer.Planted .. "  | collect: " .. State.Collected
+        .. "\nSeed    : " .. (seed and (itemName(seed) .. " x" .. invCount(seed)) or "-")
+        .. "\nPohon   : " .. (Refs.Trees and "terbaca" or "TIDAK terbaca (harvest mati)")
+        .. "\nPijakan : " .. blockText(Farmer.UseBlock, Farmer.ScaffoldId)
+        .. "\nAksi    : " .. Farmer.Status
+    if txt == lastFarmerText then return end
+    lastFarmerText = txt
+    task.defer(function()
+        pcall(function() UI.FarmerStatus:SetDesc(txt) end)
+    end)
+end
+
+-- 1 langkah mesin panen/tanam (pakai FC):
+--   kerjakan yang terjangkau, atau jalan ke target terdekat.
+-- Hasil: "work" | "move" | "wait" | "idle" (+ detik ke pohon siap berikutnya)
+local function fieldStep()
+    local w = Refs.World
+    local s = playerState()
+    if not w or not s or s.dead then
+        releaseInput()
+        task.wait(0.5)
+        return "wait"
+    end
+    if not s.grounded then
+        releaseInput()
+        task.wait()
+        return "wait"
+    end
+    releaseInput()
+    if farmerWorkInReach(s) > 0 then return "work" end
+    local R = farmReach() - 0.35
+    local useBlock = scaffoldId() ~= nil
+    local sx, sy = startNode(s)
+    local px, py = floor(s.x), floor(s.y - 0.475)
+    local targets, nextReady = farmerScan(px, py, 8, reachFilter(sy * w.w + sx, R, useBlock))
+    if not FC.run() or not alive() then return "wait" end
+    if #targets == 0 then return "idle", nextReady end
+    travelGroup(sx, sy, targets, R, useBlock, FC.skip, FarmerFail)
+    return "move"
+end
+
+local function farmerLoop()
+    local lastUi = 0
+    while Farmer.Running and alive() do
+        task.wait()
+        if os.clock() - lastUi > 0.5 then
+            lastUi = os.clock()
+            updateFarmerStatus()
+        end
+        FC = farmerCfg()
+        if not Refs.World then
+            Farmer.Status = "Menunggu karakter / world..."
+            task.wait(0.5)
+            continue
+        end
+        local r, nextReady = fieldStep()
+        if r == "wait" and not playerState() then
+            Farmer.Status = "Menunggu karakter / world..."
+        end
+        if r == "idle" then
+            local parts = {}
+            if Farmer.Harvest then
+                parts[#parts + 1] = nextReady and ("pohon siap ±" .. math.ceil(nextReady) .. " dtk") or "tidak ada pohon"
+            end
+            if Farmer.Plant then
+                parts[#parts + 1] = (seedCount() <= 0) and "seed habis / belum dipilih" or "tidak ada tempat tanam"
+            end
+            Farmer.Status = "Menunggu: " .. table.concat(parts, ", ")
+            if not waitAuto(1000) then break end
+        end
+    end
+    releaseInput()
+end
+
+local function setFarmerVisual()
+    if UI.FarmerToggle then pcall(function() UI.FarmerToggle:Set(Farmer.Running) end) end
+end
+
+stopFarmer = function(reason)
+    Farmer.Running = false
+    autoEnd()
+    setFarmerVisual()
+    Farmer.Status = reason or "Dihentikan"
+    if reason then
+        notify("Farmer", reason, 5)
+        if not string.find(reason, "^Dihentikan") then Hook.send("stop", "Farmer berhenti: " .. reason) end
+    end
+    updateFarmerStatus()
+end
+
+local function startFarmer()
+    if Farmer.Running then return end
+    local err = checkAutoStart()
+    if not err and not Farmer.Harvest and not Farmer.Plant then
+        err = "Aktifkan Auto Harvest atau Auto Plant"
+    end
+    if not err and not Farmer.Harvest and not Farmer.SeedId then
+        err = "Pilih seed dulu untuk Auto Plant"
+    end
+    if err then
+        notify("Farmer", err, 4)
+        setFarmerVisual()
+        return
+    end
+    if Farmer.Harvest and not Refs.Trees and not findTreeRefs() then
+        notify("Farmer", "Data pohon tidak ketemu: Auto Harvest tidak bisa cek pohon siap", 5)
+    end
+    if Splice.Running and Splice.stop then Splice.stop("Dihentikan karena Farmer dimulai") end
+    if Pabrik.Running and Pabrik.stop then Pabrik.stop("Dihentikan karena Farmer dimulai") end
+    if Build.Running and Build.stop then Build.stop("Dihentikan karena Farmer dimulai") end
+    if State.Running then stopFarm("Dihentikan karena Farmer dimulai") end
+    if Clear.Running then stopClear("Dihentikan karena Farmer dimulai") end
+    table.clear(Farmer.Skip)
+    table.clear(FarmerFail)
+    table.clear(BadEdge)
+    Farmer.Status = "Mulai..."
+    Farmer.Running = true
+    autoBegin()
+    setFarmerVisual()
+    updateFarmerStatus()
+    task.spawn(function()
+        local ok, e = pcall(farmerLoop)
+        if not ok then
+            warn("[Fian792] Farmer error: " .. tostring(e))
+            if Farmer.Running then stopFarmer("Error: " .. tostring(e)) end
+        end
+    end)
+end
+
+---------------------------------------------------------------------
+-- SPLICE KELILING: tanam Seed A + splice Seed B di seluruh world
+---------------------------------------------------------------------
+-- Cara kerja (sama seperti Farmer, tapi aksinya splice):
+--   1. Kerjakan semua tile yang terjangkau dari posisi sekarang:
+--        tile kosong (di bawahnya block) -> tanam A, lalu splice B ke pohon A itu
+--        pohon A yang belum di-splice     -> splice B
+--   2. Kalau tidak ada lagi yang terjangkau: cari tile terdekat, jalan ke sana pakai A*.
+--   Pohon yang sudah siap panen tidak bisa di-splice (aturan game), jadi dilewati.
+local SpliceFail = {}
+
+local function spliceInv()
+    return invCount(Splice.A or 0), invCount(Splice.B or 0)
+end
+
+-- Jenis kerja di tile ini: "plant" | "splice" | nil
+local function spliceKind(x, y, st)
+    local A = Splice.A
+    local id = fgIdAt(x, y)
+    if id == 0 then
+        local a, b = spliceInv()
+        if a > 0 and b > 0 and plantSpotOk(x, y, A) then return "plant" end
+        return nil
+    end
+    if id ~= A then return nil end
+    local trees, w = Refs.Trees, Refs.World
+    local t = trees and trees[y * w.w + x]
+    if type(t) == "table" and t.s == true then return nil end -- sudah di-splice
+    local ra = treeReadyAt(x, y, id)
+    if ra and st >= ra then return nil end -- sudah siap panen
+    local _, b = spliceInv()
+    if b > 0 and canWorkAt(x, y) then return "splice" end
+    return nil
+end
+
+local function spliceOnce(x, y)
+    local w = Refs.World
+    local f = w and rawget(w, "spliceSeed")
+    if type(f) ~= "function" then return false, "fungsi splice game tidak ketemu" end
+    local ok, made = pcall(f, x, y, Splice.B)
+    if ok and made and ItemDB[made] then
+        pcall(function() Refs.Inv:remove(Splice.B, 1) end)
+        if Refs.SetTile then pcall(Refs.SetTile, "fg", x, y, made, true) end -- ganti di layar saja
+        Splice.Made += 1
+        Splice.Status = ("Splice jadi %s (%d,%d)"):format(itemName(made), x, y)
+        return true
+    end
+    return false, "ditolak server"
+end
+
+-- Kerjakan 1 tile: tanam A (kalau kosong) lalu splice B
+local function spliceTile(t)
+    local A = Splice.A
+    if fgIdAt(t.x, t.y) == 0 then
+        if invCount(A) <= 0 then return false end
+        sendSetTile("fg", t.x, t.y, A)
+        pcall(function() Refs.Inv:remove(A, 1) end)
+        Splice.Planted += 1
+        Splice.Status = ("Tanam %s (%d,%d)"):format(itemName(A), t.x, t.y)
+        if not waitAuto(Splice.Ms) then return false end
+    end
+    if fgIdAt(t.x, t.y) ~= A then
+        skipTile(Splice.Skip, t.idx, 30)
+        return true
+    end
+    local ok, why = spliceOnce(t.x, t.y)
+    if not ok then
+        SpliceFail[t.idx] = (SpliceFail[t.idx] or 0) + 1
+        skipTile(Splice.Skip, t.idx, 60)
+        Splice.Status = ("Gagal splice (%d,%d): %s"):format(t.x, t.y, tostring(why))
+    end
+    waitAuto(Splice.Ms)
+    return true
+end
+
+local function spliceWorkInReach(s)
+    local w = Refs.World
+    local W = w.w
+    local R = farmReach() - 0.08
+    local cx, cy = s.x, s.y - 0.475
+    local now = os.clock()
+    local st = workspace:GetServerTimeNow()
+    local list = {}
+    for ty = math.max(0, floor(cy - R - 0.5)), math.min(floor(cy + R + 0.5), w.h - 1) do
+        for tx = math.max(0, floor(cx - R - 0.5)), math.min(floor(cx + R + 0.5), W - 1) do
+            if stateReaches(s, tx, ty, R) then
+                local idx = ty * W + tx
+                if not skipped(Splice.Skip, idx, now) and spliceKind(tx, ty, st) then
+                    list[#list + 1] = { x = tx, y = ty, idx = idx }
+                end
+            end
+        end
+    end
+    table.sort(list, function(a, b)
+        if a.x ~= b.x then return a.x < b.x end
+        return a.y < b.y
+    end)
+    local done = 0
+    for _, t in ipairs(list) do
+        if not Splice.Roaming or not alive() then return done end
+        local cur = playerState()
+        if not cur or not stateReaches(cur, t.x, t.y, R) then return done end
+        if not spliceTile(t) then return done end
+        done += 1
+    end
+    return done
+end
+
+-- Tile kerja terdekat di seluruh world
+local function spliceScan(px, py, maxN, filter)
+    local w = Refs.World
+    local W, H = w.w, w.h
+    local best = {}
+    local now = os.clock()
+    local st = workspace:GetServerTimeNow()
+    local scanned = 0
+    for y = 0, H - 1 do
+        for x = 0, W - 1 do
+            local idx = y * W + x
+            if not skipped(Splice.Skip, idx, now) then
+                local dx, dy = x - px, (y - py) * 1.3
+                local d = dx * dx + dy * dy
+                if (#best < maxN or d < best[#best].d) and spliceKind(x, y, st) then
+                    if filter and not filter[idx] then
+                        skipTile(Splice.Skip, idx, 60)
+                    else
+                        local pos = #best + 1
+                        while pos > 1 and best[pos - 1].d > d do pos -= 1 end
+                        table.insert(best, pos, { x = x, y = y, idx = idx, d = d })
+                        if #best > maxN then best[#best] = nil end
+                    end
+                end
+            end
+        end
+        scanned += W
+        if scanned > 6000 then
+            scanned = 0
+            task.wait()
+            if not Splice.Roaming then return best end
         end
     end
     return best
 end
 
-local function ParseNumber(text)
-    return tonumber((text:gsub(",", "")))
+local function spliceRoamLoop(runId)
+    while Splice.Roaming and Splice.Running and alive() and Splice.RunId == runId do
+        task.wait()
+        local w = Refs.World
+        local s = playerState()
+        if not w or not s or s.dead then
+            releaseInput()
+            Splice.Status = "Menunggu karakter / world..."
+            task.wait(0.5)
+            continue
+        end
+        if not s.grounded then
+            releaseInput()
+            continue
+        end
+        releaseInput()
+        local a, b = spliceInv()
+        if b <= 0 then
+            if Splice.stop then Splice.stop("Seed habis") end
+            break
+        end
+        -- 1) kerjakan yang terjangkau
+        if spliceWorkInReach(s) > 0 then continue end
+        -- 2) jalan ke tile terdekat
+        local R = farmReach() - 0.35
+        local sx, sy = startNode(s)
+        local px, py = floor(s.x), floor(s.y - 0.475)
+        local targets = spliceScan(px, py, 8, reachFilter(sy * w.w + sx, R, false))
+        if not Splice.Roaming or not alive() then break end
+        if #targets == 0 then
+            Splice.Status = (a <= 0) and "Seed A habis, tidak ada pohon A yang bisa di-splice"
+                or "Menunggu: tidak ada tempat tanam / pohon untuk di-splice"
+            if not waitAuto(1000) then break end
+            continue
+        end
+        travelGroup(sx, sy, targets, R, false, Splice.Skip, SpliceFail)
+    end
+    releaseInput()
 end
 
-local function GatherTexts(container)
-    local texts = {}
-    for _, obj in ipairs(container:GetDescendants()) do
-        if obj:IsA("TextLabel") and obj.Text ~= "" and IsShown(obj) then
-            table.insert(texts, CleanText(obj.Text))
+local function startSpliceRoam()
+    if not OrigIsDown then return "Kontrol gerak game (WorldMenu.isDown) tidak ketemu" end
+    if not playerState() then return "Kamu belum masuk world" end
+    if not Refs.Trees then findTreeRefs() end
+    table.clear(Splice.Skip)
+    table.clear(SpliceFail)
+    table.clear(BadEdge)
+    Splice.Roaming = true
+    autoBegin()
+    local id = Splice.RunId
+    task.spawn(function()
+        local ok, e = pcall(spliceRoamLoop, id)
+        if not ok then
+            warn("[Fian792] Splice error: " .. tostring(e))
+            if Splice.Running and Splice.stop then Splice.stop("Error: " .. tostring(e)) end
+        end
+    end)
+    return nil
+end
+
+local function stopSpliceRoam()
+    Splice.Roaming = false
+    autoEnd()
+    releaseInput()
+end
+
+-- Jalan ke 1 tile tertentu (dipakai Penjaga: balik ke posisi Auto Farm).
+-- Pakai A* yang sama, tanpa taruh block.
+local function walkTo(tx, ty, maxSec)
+    local w = Refs.World
+    if not w or not OrigIsDown then return false end
+    if tx < 0 or ty < 0 or tx >= w.w or ty >= w.h then return false end
+    Move.Homing = true
+    autoBegin()
+    local goal = { [ty * w.w + tx] = true }
+    local t0, ok = os.clock(), false
+    while alive() and Move.Homing and os.clock() - t0 < (maxSec or 30) do
+        local s = playerState()
+        if not s or s.dead then
+            task.wait(0.3) -- tunggu respawn / world selesai dimuat
+        else
+            local sx, sy = startNode(s)
+            if sx == tx and sy == ty and s.grounded then
+                ok = true
+                break
+            end
+            local path = astar(sx, sy, goal, tx, ty, 0.5, false)
+            if not path then break end -- tidak ada jalan
+            if #path > 0 then followPath(path) end
+            releaseInput()
+            task.wait(0.15)
         end
     end
-    return texts
+    Move.Homing = false
+    autoEnd()
+    return ok
 end
 
-local function ReadQuestRows(root)
-    local rows, seen = {}, {}
-    for _, obj in ipairs(root:GetDescendants()) do
-        if obj:IsA("TextLabel") and IsShown(obj) then
-            local a, b = CleanText(obj.Text):match("(%d[%d,]*)%s*/%s*(%d[%d,]*)")
-            if a and b then
-                local container = obj.Parent
-                local texts = GatherTexts(container)
-                if #texts < 2 and container.Parent and container.Parent ~= root then
-                    container = container.Parent
-                    texts = GatherTexts(container)
-                end
-                if not seen[container] then
-                    seen[container] = true
-                    table.insert(rows, {
-                        have = ParseNumber(a),
-                        need = ParseNumber(b),
-                        text = table.concat(texts, " "),
-                    })
-                end
-            end
-        end
+---------------------------------------------------------------------
+-- LAHAN: bentuk farm world
+---------------------------------------------------------------------
+-- Baris block dari Y0 ke bawah, tiap baris berjarak Gap.
+-- Kalau Tangga nyala, ujung baris dibuka bergantian:
+--   baris ke-1, 3, 5.. ujung KANAN kosong, baris ke-2, 4, 6.. ujung KIRI kosong.
+--   Jadi ada jalan zig-zag turun-naik di pojok (lompat naik maksimal 3 tile).
+local function landRows()
+    local w = Refs.World
+    local rows = {}
+    if not w then return rows end
+    local gap = math.clamp(math.floor(Land.Gap), 2, 3)
+    for k = 0, math.max(0, math.floor(Land.Rows)) - 1 do
+        local y = math.floor(Land.Y0) + k * gap
+        if y < 1 or y >= w.h - 1 then break end
+        rows[#rows + 1] = y
     end
     return rows
 end
 
-local function ClassifyQuest(text)
-    local lower = text:lower()
-    local verb = nil
-    if lower:find("break") or lower:find("punch") or lower:find("smash") or lower:find("harvest")
-        or lower:find("chop") or lower:find("hancur") or lower:find("pecah") then
-        verb = "break"
-    elseif lower:find("place") or lower:find("build") or lower:find("plant")
-        or lower:find("pasang") or lower:find("taruh") then
-        verb = "place"
-    elseif lower:find("collect") or lower:find("gather") or lower:find("pick up")
-        or lower:find("kumpul") or lower:find("ambil") then
-        verb = "collect"
+-- Kolom awal & akhir block untuk baris ke-k (0 = paling atas)
+local function landSpan(k)
+    local w = Refs.World
+    local x0 = math.clamp(math.floor(Land.X0), 0, w.w - 1)
+    local x1 = math.clamp(math.floor(Land.X1), 0, w.w - 1)
+    if x1 < x0 then x0, x1 = x1, x0 end
+    if Land.Stairs and x1 - x0 >= 3 then
+        if k % 2 == 0 then x1 -= 1 else x0 += 1 end
     end
+    return x0, x1
+end
 
-    local bestId, bestLen = nil, 0
-    local list = GetBlockList()
-    if list then
-        for _, entry in ipairs(list) do
-            if #entry.lower >= 3 and #entry.lower > bestLen and lower:find(entry.lower, 1, true) then
-                bestId, bestLen = entry.id, #entry.lower
+local function inLandRect(x, y)
+    local rows = landRows()
+    if #rows == 0 then return false end
+    local x0 = math.min(Land.X0, Land.X1)
+    local x1 = math.max(Land.X0, Land.X1)
+    return x >= x0 and x <= x1 and y >= rows[1] - 1 and y <= rows[#rows]
+end
+
+-- Tile block lahan: [idx] = true
+local function landBlockSet()
+    local set = {}
+    local w = Refs.World
+    if not w then return set end
+    for k, y in ipairs(landRows()) do
+        local x0, x1 = landSpan(k - 1)
+        for x = x0, x1 do set[y * w.w + x] = true end
+    end
+    return set
+end
+
+-- Tile tanam lahan (di atas block yang sudah terpasang): [idx] = true
+local function landPlantSet()
+    local set = {}
+    local w = Refs.World
+    if not w then return set end
+    for k, y in ipairs(landRows()) do
+        local x0, x1 = landSpan(k - 1)
+        for x = x0, x1 do
+            if fgIdAt(x, y) ~= 0 and y - 1 >= 0 then set[(y - 1) * w.w + x] = true end
+        end
+    end
+    return set
+end
+
+-- Hitung kebutuhan block lahan
+local function landInfo(blockId)
+    local info = { rows = 0, total = 0, need = 0, done = 0, blocked = 0, gap = 0 }
+    local w = Refs.World
+    if not w then return info end
+    local rows = landRows()
+    info.rows = #rows
+    for k, y in ipairs(rows) do
+        local x0, x1 = landSpan(k - 1)
+        for x = x0, x1 do
+            info.total += 1
+            local id = fgIdAt(x, y)
+            local it = ItemDB[id]
+            if id == 0 then
+                info.need += 1
+            elseif id == blockId or (it and it.solid and it.kind ~= "seed") then
+                info.done += 1
+            else
+                info.blocked += 1
             end
+            local up = fgIdAt(x, y - 1)
+            local upIt = ItemDB[up]
+            if up ~= 0 and not (upIt and upIt.kind == "seed") then info.gap += 1 end
         end
     end
-    return verb, bestId
+    return info
 end
 
-local function OpenQuestWindow()
-    local world = FindWorld()
-    local quests = world and rawget(world, "quests")
-    if type(quests) ~= "table" or type(quests.open) ~= "function" then
-        return nil
-    end
-    pcall(quests.open)
-    task.wait(0.8)
-    return FindQuestRoot()
+-- Seed <-> block (seed biasanya id block + 1, kecuali item khusus yang punya seedId)
+local function seedOfBlock(block)
+    local it = block and ItemDB[block]
+    if not it then return nil end
+    local sid = it.seedId or (block + 1)
+    local sd = ItemDB[sid]
+    if sd and sd.kind == "seed" then return sid end
+    return nil
 end
 
-local function CloseQuestWindow(root)
-    if not root then
-        return
-    end
-    for _, obj in ipairs(root:GetDescendants()) do
-        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and IsShown(obj) then
-            local text = ButtonText(obj)
-            if text == "x" or text:find("close", 1, true) or text:find("tutup", 1, true) then
-                ClickGui(obj)
-                return
-            end
-        end
-    end
+local function blockOfSeed(seed)
+    if not seed then return nil end
+    local b = seed - 1
+    local it = ItemDB[b]
+    if it and it.kind ~= "seed" and (it.seedId == nil or it.seedId == seed) then return b end
+    return nil
 end
 
-local function ClaimAll(root)
-    local claimed = 0
-    for _, obj in ipairs(root:GetDescendants()) do
-        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and IsShown(obj) then
-            local text = ButtonText(obj)
-            if text:find("claim", 1, true) or text:find("redeem", 1, true) or text:find("klaim", 1, true)
-                or text:find("selesai", 1, true) then
-                if ClickGui(obj) then
-                    claimed += 1
-                    task.wait(0.5)
-                end
-            end
-        end
+local function readyTreeCount(whole)
+    local w = Refs.World
+    if not w then return 0 end
+    local st = workspace:GetServerTimeNow()
+    local x0, x1, y0, y1 = 0, w.w - 1, 0, w.h - 1
+    if not whole then
+        local rows = landRows()
+        if #rows == 0 then return 0 end
+        x0 = math.max(0, math.min(Land.X0, Land.X1))
+        x1 = math.min(w.w - 1, math.max(Land.X0, Land.X1))
+        y0, y1 = math.max(0, rows[1] - 1), rows[#rows]
     end
-    return claimed
-end
-
-function QuestReport()
-    local root = OpenQuestWindow()
-    if not root then
-        Notify("Jendela quest tidak terbaca. Buka menu quest di game lalu ketik " .. Config.prefix .. "aq scan lagi.")
-        return
-    end
-    local rows = ReadQuestRows(root)
-    if #rows == 0 then
-        Notify("Tidak ada baris progres (x/y) di jendela quest.")
-    end
-    for index, row in ipairs(rows) do
-        local verb, itemId = ClassifyQuest(row.text)
-        local line = string.format("Quest %d: %d/%d | aksi: %s | item: %s | %s", index, row.have, row.need,
-            verb or "?", itemId and (ItemName(itemId) .. " #" .. itemId) or "?", row.text)
-        print("[PeexHub] " .. line)
-        Notify(string.format("Quest %d: %d/%d  %s  %s", index, row.have, row.need, verb or "?",
-            itemId and ItemName(itemId) or "?"))
-    end
-end
-
-local function QuestLoop(token)
-    while questOn and questToken == token do
-        questStatus = "Membaca quest"
-        local root = OpenQuestWindow()
-        if not root then
-            questStatus = "Jendela quest tidak terbaca"
-            Notify("Auto Quest berhenti: jendela quest tidak terbaca. Coba " .. Config.prefix .. "aq scan.")
-            break
-        end
-
-        questStatus = "Claim reward"
-        ClaimAll(root)
-        task.wait(0.4)
-        root = FindQuestRoot() or root
-
-        local target = nil
-        for _, row in ipairs(ReadQuestRows(root)) do
-            if row.have < row.need then
-                local verb, itemId = ClassifyQuest(row.text)
-                if (verb == "break" or verb == "place") and itemId then
-                    local have = CountItem(itemId)
-                    if have == nil or have > 0 then
-                        target = { itemId = itemId, text = row.text }
-                        break
+    local n, nxt = 0, nil
+    for y = y0, y1 do
+        for x = x0, x1 do
+            local id = fgIdAt(x, y)
+            if id ~= 0 then
+                local ra = treeReadyAt(x, y, id)
+                if ra then
+                    if st >= ra then
+                        n += 1
+                    elseif not nxt or ra - st < nxt then
+                        nxt = ra - st
                     end
                 end
             end
         end
-        CloseQuestWindow(root)
+    end
+    return n, nxt
+end
 
-        if not target then
-            questStatus = "Tidak ada quest yang bisa dikerjakan otomatis"
-            Notify("Auto Quest selesai: tidak ada quest break/place dengan item yang kamu punya.")
-            break
-        end
+---------------------------------------------------------------------
+-- PABRIK
+---------------------------------------------------------------------
+-- Fase (berputar terus):
+--   PANEN : panen semua pohon siap di lahan (berhenti kalau block / seed hampir 200)
+--   TANAM : tanam seed di semua tile lahan yang kosong
+--   BREAK : jalan ke posisi break, Auto Farm (place + break) di tile pabrik sampai block habis
+--   TUNGGU: tunggu pohon siap, lalu kembali ke PANEN
+--   Kapan saja seed >= batas drop -> pergi drop (seed - sisakan), lalu pulang.
+-- Inventori maksimal 200 per item, jadi semua fase dijaga supaya tidak penuh.
+-- Drop yang jatuh di tempat drop tidak di-collect lagi.
+local BOOT_SEEDS = 10 -- (mode produksi) cukup seed segini untuk mulai tanam
+local CAP = 190       -- batas aman jumlah item (maksimal 200 per item)
 
-        -- kerjakan lewat Auto Farm
-        local savedId = Config.farmPlaceId
-        Config.farmPlaceId = target.itemId
-        questStatus = "Farm " .. ItemName(target.itemId)
-        if farmOn then
-            StopFarm()
-            task.wait(0.3)
+local function pabrikCfg(o, harvest, plant)
+    local plantSet, area = nil, nil
+    if not o.whole then
+        plantSet = landPlantSet()
+        area = inLandRect
+    end
+    return {
+        run = o.live,
+        harvest = harvest,
+        plant = plant and invCount(o.seed) > 0,
+        seed = o.seed,
+        skip = Pabrik.Skip,
+        hms = Farmer.HarvestMs,
+        pms = Farmer.PlantMs,
+        area = area,
+        plantSet = plantSet,
+        exclude = o.exclude,
+        status = function(t) Pabrik.Status = t end,
+        onHarvest = function() Pabrik.Harvested += 1 end,
+        onPlant = function() Pabrik.Planted += 1 end,
+    }
+end
+
+-- Break block di posisi pabrik (pakai Auto Farm dengan tile & block pabrik)
+local function pabrikBreak(o)
+    if os.clock() < (Pabrik.BreakFailUntil or 0) then return false end
+    local s = playerState()
+    if not s then return false end
+    local hx, hy = startNode(s)
+    if hx ~= Pabrik.BreakX or hy ~= Pabrik.BreakY then
+        Pabrik.Status = ("Jalan ke posisi break (%d,%d)"):format(Pabrik.BreakX, Pabrik.BreakY)
+        if not walkTo(Pabrik.BreakX, Pabrik.BreakY, 45) then
+            Pabrik.Status = "Gagal jalan ke posisi break, dicoba lagi nanti"
+            Pabrik.BreakFailUntil = os.clock() + 30
+            return false
         end
-        if not StartFarm() then
-            Config.farmPlaceId = savedId
-            questStatus = "Auto Farm gagal mulai"
-            break
-        end
-        local started = os.clock()
-        local lastCheck = os.clock()
-        local done = false
-        while questOn and questToken == token and farmOn and os.clock() - started < 900 do
+    end
+    if not o.live() then return false end
+    State.Override = { offsets = Pabrik.Tiles, block = o.block, mode = "Place + Break" }
+    State.Quiet = true
+    table.clear(HitCount)
+    table.clear(PlacedAt)
+    State.Running = true
+    State.RunId = (State.RunId or 0) + 1
+    local id = State.RunId
+    local t0 = os.clock()
+    task.spawn(function() -- pengawas sesi break
+        while State.Running and State.RunId == id do
             task.wait(1)
-            if os.clock() - lastCheck >= 25 then
-                lastCheck = os.clock()
-                local checkRoot = OpenQuestWindow()
-                if checkRoot then
-                    local finished = true
-                    for _, row in ipairs(ReadQuestRows(checkRoot)) do
-                        local verb, itemId = ClassifyQuest(row.text)
-                        if itemId == target.itemId and (verb == "break" or verb == "place") and row.have < row.need then
-                            finished = false
-                        end
-                    end
-                    CloseQuestWindow(checkRoot)
-                    if finished then
-                        done = true
+            local sd = invCount(o.seed)
+            if not o.live() or os.clock() - t0 > Pabrik.BreakSec or sd >= CAP
+                or (o.drop and Pabrik.Drop and sd >= Pabrik.DropAt)
+                or (o.breakMode ~= "always" and sd >= BOOT_SEEDS) then
+                State.Running = false
+            end
+        end
+    end)
+    Pabrik.Status = "Break " .. itemName(o.block) .. " di posisi pabrik"
+    local ok, e = pcall(farmLoop, id)
+    if not ok then warn("[Fian792] Pabrik break error: " .. tostring(e)) end
+    State.Running = false
+    State.Override = nil
+    State.Quiet = false
+    return true
+end
+
+-- "WORLD" / "WORLD:ID" / ":ID" -> nama world, id pintu
+local function parseDropTarget()
+    local raw = tostring(Pabrik.DropWorld or ""):gsub("%s", "")
+    local name, door = string.match(raw, "^([^:]*):(.+)$")
+    if not name then name = raw end
+    name = string.upper(name):gsub("[^A-Z0-9]", "")
+    if door == "" then door = nil end
+    return name, door
+end
+
+-- Pindah world (lewat menu game), bisa langsung ke pintu tertentu
+local function goWorld(name, door)
+    if Guard.worldName() ~= "" then
+        Guard.leaveWorld()
+        task.wait(2)
+    end
+    if door and Refs.World then rawset(Refs.World, "arriveDoor", door) end
+    local ok, err = Guard.enterWorld(name)
+    if ok then
+        task.wait(1.5)
+        Guard.afterEnter()
+    end
+    return ok, err
+end
+
+-- Drop pakai fungsi drop game (item jatuh di depan karakter)
+local function dropItems(id, n, live)
+    local hud = Refs.Hud
+    local f = hud and rawget(hud, "onDrop")
+    if type(f) ~= "function" then return 0, "fungsi drop game tidak ketemu" end
+    local left, flipped = n, false
+    while left > 0 and live() do
+        local before = invCount(id)
+        pcall(f, id, math.min(left, 200))
+        task.wait(0.7) -- game menolak drop yang terlalu cepat (0.3 dtk)
+        local got = before - invCount(id)
+        if got > 0 then
+            left -= got
+            Pabrik.Dropped += got
+        elseif not flipped then
+            -- di depan tembok / tidak boleh drop: hadap ke arah lain lalu coba lagi
+            flipped = true
+            local st = playerState()
+            local right = st and (st.facing or 1) < 0
+            AutoInput.active = true
+            AutoInput.right, AutoInput.left = right, not right
+            task.wait(0.06)
+            AutoInput.right, AutoInput.left = false, false
+            task.wait(0.3)
+        else
+            return n - left, "tidak bisa drop di posisi ini"
+        end
+    end
+    return n - left, nil
+end
+
+local function pabrikDrop(seed, n, live)
+    local name, door = parseDropTarget()
+    local home = Guard.worldName()
+    if name == "" then name = home end
+    if Pabrik.DropX < 0 and not door and name == home then
+        Pabrik.Status = "Posisi drop belum diatur (drop dilewati)"
+        Pabrik.DropOffUntil = os.clock() + 60
+        return
+    end
+    Pabrik.Traveling = true
+    local away = name ~= home
+    local ok, why = true, nil
+    if away or door then
+        Pabrik.Status = "Pergi ke " .. name .. (door and (":" .. door) or "") .. " untuk drop"
+        local okw, err = goWorld(name, door)
+        if not okw then ok, why = false, "gagal masuk " .. name .. " (" .. tostring(err) .. ")" end
+    end
+    if ok and live() and Pabrik.DropX >= 0 then
+        Pabrik.Status = ("Jalan ke posisi drop (%d,%d)"):format(Pabrik.DropX, Pabrik.DropY)
+        if not walkTo(Pabrik.DropX, Pabrik.DropY, 60) then ok, why = false, "tidak bisa jalan ke posisi drop" end
+    end
+    if ok and live() then
+        local s = playerState()
+        if s then Pabrik.Zone = { world = Guard.worldName(), x = s.x, y = s.y - 0.475 } end
+        local got, err = dropItems(seed, n, live)
+        if got > 0 then
+            local msg = ("Drop %s x%d di %s"):format(itemName(seed), got, Guard.worldName())
+            Pabrik.Status = msg
+            notify("Pabrik", msg, 4)
+            Hook.send("pabrik", msg)
+        end
+        if err then ok, why = false, err end
+    end
+    if not ok then
+        Pabrik.DropOffUntil = os.clock() + 120
+        Pabrik.Status = "Drop gagal: " .. tostring(why)
+        notify("Pabrik", Pabrik.Status, 5)
+        Hook.send("pabrik", Pabrik.Status)
+    end
+    -- pulang ke world pabrik
+    if away and home ~= "" and live() then
+        Pabrik.Status = "Pulang ke " .. home
+        local okh = goWorld(home, nil)
+        if not okh and live() then
+            task.wait(5)
+            okh = goWorld(home, nil)
+        end
+        if not okh then
+            Pabrik.Traveling = false
+            if Pabrik.stop then Pabrik.stop("Gagal pulang ke world pabrik " .. home) end
+            return
+        end
+    end
+    Pabrik.Traveling = false
+end
+
+local PHASE_NAME = { panen = "PANEN", tanam = "TANAM", ["break"] = "BREAK", tunggu = "TUNGGU" }
+
+local function breakReady()
+    return Pabrik.BreakX >= 0 and next(Pabrik.Tiles) ~= nil and os.clock() >= (Pabrik.BreakFailUntil or 0)
+end
+
+-- 1 langkah pabrik. o = { seed, block, drop, breakMode, whole, exclude, live, phase }
+-- Hasil: "drop" | "work" | "move" | "wait" | "break" | "next" | "idle" (+ detik ke pohon siap)
+local function pabrikStep(o)
+    local seeds, blocks = invCount(o.seed), invCount(o.block)
+    o.phase = o.phase or "panen"
+    Pabrik.Phase = PHASE_NAME[o.phase]
+    -- drop seed lebihan (kapan saja)
+    if o.drop and Pabrik.Drop and seeds >= Pabrik.DropAt and seeds > Pabrik.Keep
+        and os.clock() >= (Pabrik.DropOffUntil or 0) then
+        pabrikDrop(o.seed, seeds - Pabrik.Keep, o.live)
+        return "drop"
+    end
+
+    if o.phase == "panen" then
+        -- 1x panen bisa kena beberapa pohon, jadi sisakan ruang ~20 item
+        if blocks >= CAP - 20 or seeds >= CAP - 20 then
+            o.phase = "tanam"
+            return "next"
+        end
+        FC = pabrikCfg(o, true, false)
+        local r = fieldStep()
+        if r == "idle" then
+            o.idleAt = os.clock()
+            o.phase = "tanam"
+            return "next"
+        end
+        return r
+    end
+
+    if o.phase == "tanam" then
+        if seeds > 0 then
+            FC = pabrikCfg(o, false, true)
+            local r = fieldStep()
+            if r ~= "idle" then return r end
+        end
+        o.phase = "break"
+        return "next"
+    end
+
+    if o.phase == "break" then
+        local want
+        if o.breakMode == "always" then
+            want = blocks > 0
+        else -- mode produksi: break hanya untuk dapat seed awal
+            local _, nxt = readyTreeCount(o.whole)
+            want = blocks > 0 and seeds < BOOT_SEEDS and nxt == nil
+        end
+        if want and breakReady() and pabrikBreak(o) then
+            if invCount(o.block) <= 0 or o.breakMode ~= "always" then o.phase = "tanam" end
+            return "break"
+        end
+        o.phase = "tunggu"
+        return "next"
+    end
+
+    -- tunggu
+    local n, nxt = readyTreeCount(o.whole)
+    if n > 0 and os.clock() - (o.idleAt or 0) > 5 then
+        o.phase = "panen"
+        return "next"
+    end
+    if o.breakMode == "always" and blocks > 0 and breakReady() then
+        o.phase = "break"
+        return "next"
+    end
+    if seeds > 0 and os.clock() - (o.plantAt or 0) > 10 then
+        o.plantAt = os.clock() -- sesekali cek tile kosong (misal pohon dipanen orang lain)
+        o.phase = "tanam"
+        return "next"
+    end
+    return "idle", nxt
+end
+
+local function waitText(sec)
+    sec = math.max(0, math.ceil(sec or 0))
+    if sec >= 60 then return ("%dm %dd"):format(sec // 60, sec % 60) end
+    return sec .. " dtk"
+end
+
+local function pabrikLoop(runId)
+    local function live() return Pabrik.Running and alive() and Pabrik.RunId == runId end
+    local o = { seed = Pabrik.SeedId, block = Pabrik.BlockId, drop = true, breakMode = "always", live = live }
+    while live() do
+        task.wait()
+        o.whole = Pabrik.WholeWorld
+        local here = Guard.worldName()
+        if not Pabrik.Traveling and Pabrik.Home ~= "" and here ~= Pabrik.Home then
+            Pabrik.Status = "Bukan di world pabrik (" .. Pabrik.Home .. "), menunggu..."
+            task.wait(2)
+            continue
+        end
+        local r, nextReady = pabrikStep(o)
+        if r == "idle" then
+            local seeds, blocks = invCount(o.seed), invCount(o.block)
+            if not nextReady and seeds <= 0 and blocks <= 0 then
+                if Pabrik.stop then Pabrik.stop("Seed & block habis, tidak ada pohon tumbuh") end
+                break
+            end
+            if nextReady then
+                Pabrik.Status = "Menunggu pohon siap ±" .. waitText(nextReady)
+            elseif blocks > 0 and (Pabrik.BreakX < 0 or next(Pabrik.Tiles) == nil) then
+                Pabrik.Status = "Ada block tapi posisi / tile break belum diatur"
+            elseif seeds > 0 then
+                Pabrik.Status = "Lahan penuh, menunggu"
+            else
+                Pabrik.Status = "Menunggu..."
+            end
+            if not waitAuto(1000) then break end
+        end
+    end
+    releaseInput()
+end
+
+function Pabrik.stop(reason)
+    Pabrik.Running = false
+    Pabrik.Traveling = false
+    if State.Override then State.Running = false end
+    autoEnd()
+    releaseInput()
+    Pabrik.Status = reason or "Dihentikan"
+    if UI.PabrikToggle then pcall(function() UI.PabrikToggle:Set(false) end) end
+    if reason then
+        notify("Pabrik", reason, 5)
+        if not string.find(reason, "^Dihentikan") then Hook.send("pabrik", "Pabrik berhenti: " .. reason) end
+    end
+end
+
+function Pabrik.start()
+    if Pabrik.Running then return end
+    local err
+    local block = blockOfSeed(Pabrik.SeedId)
+    if not Refs.World then
+        err = "Data world belum ketemu. Tekan 'Hubungkan ke game'"
+    elseif not OrigIsDown then
+        err = "Kontrol gerak game (WorldMenu.isDown) tidak ketemu"
+    elseif not playerState() then
+        err = "Kamu belum masuk world"
+    elseif not Pabrik.SeedId then
+        err = "Pilih seed pabrik dulu"
+    elseif not block then
+        err = "Block dari seed ini tidak ketemu"
+    elseif not Pabrik.WholeWorld and #landRows() == 0 then
+        err = "Atur lahan dulu (tab Lahan)"
+    end
+    if err then
+        notify("Pabrik", err, 4)
+        if UI.PabrikToggle then pcall(function() UI.PabrikToggle:Set(false) end) end
+        return
+    end
+    if State.Running and not State.Override then stopFarm("Dihentikan karena Pabrik dimulai") end
+    if Clear.Running then stopClear("Dihentikan karena Pabrik dimulai") end
+    if Farmer.Running then stopFarmer("Dihentikan karena Pabrik dimulai") end
+    if Splice.Running and Splice.stop then Splice.stop("Dihentikan karena Pabrik dimulai") end
+    if not Refs.Trees then findTreeRefs() end
+    Pabrik.BlockId = block
+    Pabrik.Home = Guard.worldName()
+    table.clear(Pabrik.Skip)
+    table.clear(BadEdge)
+    Pabrik.DropOffUntil, Pabrik.BreakFailUntil = 0, 0
+    Pabrik.Running = true
+    Pabrik.RunId = (Pabrik.RunId or 0) + 1
+    Pabrik.Status = "Mulai..."
+    autoBegin()
+    if UI.PabrikToggle then pcall(function() UI.PabrikToggle:Set(true) end) end
+    local id = Pabrik.RunId
+    task.spawn(function()
+        local ok, e = pcall(pabrikLoop, id)
+        if not ok then
+            warn("[Fian792] Pabrik error: " .. tostring(e))
+            if Pabrik.Running then Pabrik.stop("Error: " .. tostring(e)) end
+        end
+    end)
+end
+
+---------------------------------------------------------------------
+-- BANGUN LAHAN
+---------------------------------------------------------------------
+-- Cara kerja:
+--   1. Hitung tile lahan yang masih kosong = block yang dibutuhkan.
+--   2. Block kurang & Produksi nyala -> tanam seed block itu di seluruh world,
+--      panen, (kalau seed habis: break sedikit block untuk dapat seed) sampai block cukup.
+--   3. Pasang block dari baris PALING BAWAH ke atas: berdiri di baris bawah,
+--      pasang baris di atasnya (jarak 2-3 tile masih terjangkau).
+local BuildFail = {}
+
+local function overlapsPlayer(x, y, s)
+    return x + 1 > s.x - 0.3 and x < s.x + 0.3 and y + 1 > s.y - 0.95 and y < s.y
+end
+
+-- Tile kosong di baris paling bawah yang belum selesai
+local function buildTargetsRow(now)
+    local w = Refs.World
+    local rows = landRows()
+    for k = #rows, 1, -1 do
+        local y = rows[k]
+        local x0, x1 = landSpan(k - 1)
+        local list = {}
+        for x = x0, x1 do
+            local idx = y * w.w + x
+            if fgIdAt(x, y) == 0 and not skipped(Build.Skip, idx, now) then
+                list[#list + 1] = { x = x, y = y, idx = idx }
+            end
+        end
+        if #list > 0 then return list end
+    end
+    return {}
+end
+
+local function placeBuild(t, s)
+    local id = Build.BlockId
+    if invCount(id) <= 0 or overlapsPlayer(t.x, t.y, s) then return false end
+    if not placeOk(t.x, t.y) then
+        skipTile(Build.Skip, t.idx, 120)
+        return false
+    end
+    sendSetTile("fg", t.x, t.y, id)
+    pcall(function() Refs.Inv:remove(id, 1) end)
+    Build.Placed += 1
+    Build.Status = ("Pasang %s (%d,%d)"):format(itemName(id), t.x, t.y)
+    return true
+end
+
+local function buildStep()
+    local w = Refs.World
+    local s = playerState()
+    if not w or not s or s.dead then
+        releaseInput()
+        task.wait(0.5)
+        return "wait"
+    end
+    if not s.grounded then
+        releaseInput()
+        task.wait()
+        return "wait"
+    end
+    releaseInput()
+    local list = buildTargetsRow(os.clock())
+    if #list == 0 then return "none" end
+    -- pasang semua yang terjangkau
+    local R = buildReach() - 0.08
+    local done = 0
+    for _, t in ipairs(list) do
+        if not Build.Running or not alive() then return "wait" end
+        local cur = playerState()
+        if not cur then break end
+        if fgIdAt(t.x, t.y) == 0 and stateReaches(cur, t.x, t.y, R) and placeBuild(t, cur) then
+            done += 1
+            if not waitAuto(State.PlaceMs) then return "wait" end
+        end
+    end
+    if done > 0 then return "work" end
+    -- jalan ke tile terdekat di baris itu
+    local px = floor(s.x)
+    table.sort(list, function(a, b) return abs(a.x - px) < abs(b.x - px) end)
+    local group = {}
+    for i = 1, math.min(8, #list) do group[i] = list[i] end
+    local sx, sy = startNode(s)
+    travelGroup(sx, sy, group, buildReach() - 0.35, scaffoldId() ~= nil, Build.Skip, BuildFail)
+    return "move"
+end
+
+function Build.stop(reason)
+    Build.Running = false
+    if Pabrik.Running == false and State.Override then State.Running = false end
+    autoEnd()
+    releaseInput()
+    Build.Phase = reason or "Dihentikan"
+    if UI.BuildToggle then pcall(function() UI.BuildToggle:Set(false) end) end
+    if reason then
+        notify("Bangun Lahan", reason, 5)
+        if not string.find(reason, "^Dihentikan") then Hook.send("pabrik", "Bangun Lahan: " .. reason) end
+    end
+end
+
+local function buildLoop(runId)
+    local function live() return Build.Running and alive() and Build.RunId == runId end
+    local seed = seedOfBlock(Build.BlockId)
+    local o = { seed = seed, block = Build.BlockId, drop = false, breakMode = "bootstrap", whole = true, live = live }
+    local phase = nil
+    while live() do
+        task.wait()
+        local info = landInfo(Build.BlockId)
+        Build.Info = info
+        if info.need == 0 then
+            Build.stop("Lahan selesai (" .. info.done .. " block)")
+            if Build.ThenPabrik then
+                if not Pabrik.SeedId then Pabrik.SeedId = seed end
+                Pabrik.start()
+            end
+            break
+        end
+        local have = invCount(Build.BlockId)
+        local target = math.min(info.need, CAP) -- inventori maksimal 200 per item
+        if phase == nil then
+            phase = (have >= target or not Build.Produce) and "bangun" or "produksi"
+        end
+        if phase == "produksi" then
+            if have >= target then
+                phase = "bangun"
+                notify("Bangun Lahan", "Block cukup (" .. have .. "), mulai pasang", 4)
+            elseif not seed then
+                Build.stop(("Block kurang %d dan seed-nya tidak ketemu"):format(info.need - have))
+                break
+            else
+                Build.Phase = ("Produksi block %d / %d (total butuh %d)"):format(have, target, info.need)
+                o.exclude = landBlockSet() -- jangan tanam di tempat block lahan
+                local r, nextReady = pabrikStep(o)
+                Build.Status = Pabrik.Status
+                if r == "idle" then
+                    if not nextReady and invCount(seed) <= 0 and have <= 0 then
+                        Build.stop("Seed & block habis. Butuh " .. info.need .. " block")
                         break
                     end
+                    if not nextReady and invCount(seed) <= 0 and (Pabrik.BreakX < 0 or next(Pabrik.Tiles) == nil) then
+                        Build.Status = "Seed habis: atur posisi & tile break di tab Pabrik supaya bisa dapat seed"
+                    end
+                    if not waitAuto(1000) then break end
+                end
+            end
+        else
+            if have <= 0 then
+                if Build.Produce and seed then
+                    phase = "produksi"
+                else
+                    Build.stop("Block habis, masih kurang " .. info.need)
+                    break
+                end
+            else
+                Build.Phase = ("Pasang lahan: sisa %d tile"):format(info.need)
+                local r = buildStep()
+                if r == "none" then
+                    Build.Status = "Sisa tile belum terjangkau / terhalang, dicoba lagi"
+                    if not waitAuto(1500) then break end
                 end
             end
         end
-        StopFarm()
-        Config.farmPlaceId = savedId
-        if not (questOn and questToken == token) then
-            break
-        end
-        if not done then
-            questStatus = "Farm berhenti sebelum quest selesai"
-            Notify("Auto Quest berhenti: farm berhenti (item habis / world berubah / timeout).")
-            break
-        end
-        task.wait(1)
     end
-    if questToken == token then
-        questOn = false
-        if RefreshHub then
-            RefreshHub()
-        end
-    end
+    releaseInput()
 end
 
-function StopQuest()
-    if not questOn then
-        return false
+function Build.start()
+    if Build.Running then return end
+    local err
+    local it = Build.BlockId and ItemDB[Build.BlockId]
+    if not Refs.World then
+        err = "Data world belum ketemu. Tekan 'Hubungkan ke game'"
+    elseif not OrigIsDown then
+        err = "Kontrol gerak game (WorldMenu.isDown) tidak ketemu"
+    elseif not playerState() then
+        err = "Kamu belum masuk world"
+    elseif not (it and it.solid) then
+        err = "Pilih block padat untuk lahan"
+    elseif #landRows() == 0 then
+        err = "Atur lahan dulu (Y awal / jumlah baris)"
     end
-    questToken += 1
-    questOn = false
-    questStatus = "Mati"
-    StopFarm()
-    return true
-end
-
-function StartQuest()
-    if questOn then
-        return true
+    if err then
+        notify("Bangun Lahan", err, 4)
+        if UI.BuildToggle then pcall(function() UI.BuildToggle:Set(false) end) end
+        return
     end
-    questToken += 1
-    local token = questToken
-    questOn = true
-    questStatus = "Mulai"
+    if State.Running and not State.Override then stopFarm("Dihentikan karena Bangun Lahan dimulai") end
+    if Clear.Running then stopClear("Dihentikan karena Bangun Lahan dimulai") end
+    if Farmer.Running then stopFarmer("Dihentikan karena Bangun Lahan dimulai") end
+    if Splice.Running and Splice.stop then Splice.stop("Dihentikan karena Bangun Lahan dimulai") end
+    if Pabrik.Running then Pabrik.stop("Dihentikan karena Bangun Lahan dimulai") end
+    if not Refs.Trees then findTreeRefs() end
+    table.clear(Build.Skip)
+    table.clear(BuildFail)
+    table.clear(Pabrik.Skip)
+    table.clear(BadEdge)
+    Pabrik.BreakFailUntil = 0
+    Build.Running = true
+    Build.RunId = (Build.RunId or 0) + 1
+    Build.Phase = "Menghitung..."
+    autoBegin()
+    if UI.BuildToggle then pcall(function() UI.BuildToggle:Set(true) end) end
+    local id = Build.RunId
     task.spawn(function()
-        local ok, err = pcall(QuestLoop, token)
+        local ok, e = pcall(buildLoop, id)
         if not ok then
-            warn(err)
-            Notify("Auto Quest error: " .. tostring(err))
-            if questToken == token then
-                questOn = false
-                if RefreshHub then
-                    RefreshHub()
-                end
-            end
-        end
-    end)
-    return true
-end
-
-----------------------------------------------------------------------
--- GOD MODE
--- Hazard tile (lava, spike, api, dll) di game ditentukan dari flag
--- "hurts"/"deadly" di ItemDB. Flag itu dimatikan selama God Mode aktif,
--- dan event "Burned" dari server diabaikan.
--- Tidak mencakup kick / ban / warning dari staff.
-----------------------------------------------------------------------
-local godSaved = {}
-local godConns = {}
-
-function StopGod()
-    if not godOn then
-        return false
-    end
-    for _, saved in ipairs(godSaved) do
-        pcall(function()
-            rawset(saved.item, saved.key, saved.value)
-        end)
-    end
-    godSaved = {}
-    for _, conn in ipairs(godConns) do
-        pcall(function()
-            conn:Enable()
-        end)
-    end
-    godConns = {}
-    godOn = false
-    return true
-end
-
-function StartGod()
-    if godOn then
-        return true
-    end
-    local db = GetItemDB()
-    if not db then
-        Notify("ItemDB game tidak ditemukan!")
-        return false
-    end
-    godSaved = {}
-    for _, item in pairs(db) do
-        if type(item) == "table" then
-            for _, key in ipairs({ "hurts", "deadly" }) do
-                if item[key] then
-                    table.insert(godSaved, { item = item, key = key, value = rawget(item, key) })
-                    pcall(function()
-                        if setreadonly then
-                            setreadonly(item, false)
-                        end
-                        rawset(item, key, false)
-                    end)
-                end
-            end
-        end
-    end
-
-    local remotes = ReplicatedStorage:FindFirstChild("WorldRemotes")
-    local burned = remotes and remotes:FindFirstChild("Burned")
-    if burned and getconnections then
-        local okConn, conns = pcall(getconnections, burned.OnClientEvent)
-        if okConn and type(conns) == "table" then
-            for _, conn in ipairs(conns) do
-                if pcall(function() conn:Disable() end) then
-                    table.insert(godConns, conn)
-                end
-            end
-        end
-    end
-    godOn = true
-    return true
-end
-
-----------------------------------------------------------------------
--- GROWSCAN
--- Buka GrowScan bawaan game; kalau tidak tersedia, pakai scan dunia Peex.
-----------------------------------------------------------------------
-local function FindGrowScanItem()
-    local db = GetItemDB()
-    if db then
-        for id, item in pairs(db) do
-            if type(id) == "number" and type(item) == "table" and item.growscan then
-                return id
-            end
-        end
-    end
-    return 0
-end
-
-function OpenNativeGrowScan()
-    local world = FindWorld()
-    local ui = world and rawget(world, "growScan")
-    if type(ui) ~= "table" or type(ui.open) ~= "function" then
-        return false
-    end
-    local ok, err = pcall(ui.open, {
-        item = FindGrowScanItem(),
-        owner = true,
-        blocksPublic = false,
-        floatingPublic = false,
-    }, function() end)
-    if not ok then
-        warn(err)
-    end
-    return ok
-end
-
--- Hitung isi world: foreground, background, dan item yang tergeletak
-function ScanWorld()
-    local world = FindWorld()
-    if not world or type(rawget(world, "w")) ~= "number" then
-        return nil
-    end
-    local result = { fg = {}, bg = {}, drops = {}, w = world.w, h = world.h }
-    local gridFg, gridBg = rawget(world, "fg"), rawget(world, "bg")
-    for y = 0, world.h - 1 do
-        local rowFg = gridFg and gridFg[y]
-        local rowBg = gridBg and gridBg[y]
-        for x = 0, world.w - 1 do
-            local f = rowFg and rowFg[x]
-            if f and f ~= 0 then
-                result.fg[f] = (result.fg[f] or 0) + 1
-            end
-            local b = rowBg and rowBg[x]
-            if b and b ~= 0 then
-                result.bg[b] = (result.bg[b] or 0) + 1
-            end
-        end
-    end
-    local okDrops, list = pcall(world.dropList)
-    if okDrops and type(list) == "table" then
-        for _, drop in ipairs(list) do
-            if type(drop) == "table" and type(drop.id) == "number" then
-                result.drops[drop.id] = (result.drops[drop.id] or 0) + (drop.n or 1)
-            end
-        end
-    end
-    return result
-end
-
-end
-
-----------------------------------------------------------------------
--- HIDDEN NAME (tampilan lokal saja)
--- Nama ditampilkan lewat modul ReplicatedStorage.Shared.Roles (dipakai game
--- untuk NameTag di atas kepala & nama di chat). Modul ini di-override di sisi
--- kita saja: tidak mengubah apa pun di server, jadi pemain lain TETAP melihat
--- nama asli di layar mereka. Reset otomatis saat prefix diubah/respawn tidak
--- berpengaruh karena hook ini permanen selama script jalan.
-----------------------------------------------------------------------
-local HiddenName = { ready = false }
-do
-    local okRoles, Roles = pcall(function()
-        return require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Roles", 5))
-    end)
-    if okRoles and type(Roles) == "table" and type(Roles.nameOf) == "function" then
-        local originalNameOf = Roles.nameOf
-        local function ShouldHide(player)
-            if Config.hiddenNameMode == "all" then
-                return true
-            end
-            if Config.hiddenNameMode == "self" then
-                return player == Player
-            end
-            return false
-        end
-        Roles.nameOf = function(player, ...)
-            if ShouldHide(player) then
-                return "[HIDDEN]"
-            end
-            return originalNameOf(player, ...)
-        end
-        HiddenName.ready = true
-    end
-
-    -- Game hanya menggambar ulang NameTag saat atribut pemain berubah, jadi setelah
-    -- mode diganti kita paksa gambar ulang: (1) panggil fungsi drawTagName milik game
-    -- kalau ketemu, (2) pancing event atribut "Nick" (hanya lokal, tidak ke server).
-    function HiddenName.Redraw()
-        task.spawn(function()
-            local called = false
-            if getgcFn and debug and debug.info then
-                pcall(function()
-                    for _, fn in ipairs(getgcFn()) do
-                        if type(fn) == "function" then
-                            local okName, fnName = pcall(debug.info, fn, "n")
-                            if okName and fnName == "drawTagName" then
-                                if pcall(fn) then
-                                    called = true
-                                end
-                            end
-                        end
-                    end
-                end)
-            end
-            for _, plr in ipairs(Players:GetPlayers()) do
-                pcall(function()
-                    local cur = plr:GetAttribute("Nick")
-                    plr:SetAttribute("Nick", "\u{200B}" .. tostring(cur or ""))
-                    task.wait()
-                    plr:SetAttribute("Nick", cur)
-                end)
-            end
-        end)
-    end
-
-    function HiddenName.SetMode(mode)
-        if mode ~= "off" and mode ~= "self" and mode ~= "all" then
-            return false
-        end
-        if not HiddenName.ready and mode ~= "off" then
-            Notify("Hidden Name tidak tersedia (modul nama game tidak ditemukan).")
-            return false
-        end
-        Config.hiddenNameMode = mode
-        SaveConfig()
-        HiddenName.Redraw()
-        local labels = { off = "mati", self = "nama sendiri", all = "semua pemain" }
-        Notify("Hidden Name: " .. labels[mode])
-        if RefreshHub then
-            RefreshHub()
-        end
-        return true
-    end
-
-    task.defer(function()
-        task.wait(2)
-        if HiddenName.ready and Config.hiddenNameMode ~= "off" then
-            HiddenName.Redraw()
+            warn("[Fian792] Bangun Lahan error: " .. tostring(e))
+            if Build.Running then Build.stop("Error: " .. tostring(e)) end
         end
     end)
 end
 
-----------------------------------------------------------------------
--- SPAM CHAT
--- Game memakai TextChatService bawaan Roblox (tidak ada remote chat sendiri),
--- jadi pesan dikirim lewat channel RBXGeneral:SendAsync. Kalau chat lama
--- (legacy) yang dipakai, jatuh ke SayMessageRequest.
--- Teks yang diawali "/" ditolak: game menganggapnya command.
-----------------------------------------------------------------------
-local Spam = { on = false, token = 0, guardText = nil, guardT = 0 }
-do
-    local TextChatService = game:GetService("TextChatService")
-    local MAX_CHAT = 200
+Auto.landInfo = landInfo
+Auto.landRows = landRows
+Auto.seedOfBlock = seedOfBlock
+Auto.blockOfSeed = blockOfSeed
+Auto.parseDropTarget = parseDropTarget
 
-    ------------------------------------------------------------------
-    -- Kirim pesan. GrowBlox memakai UI chat buatan sendiri (TextBox di PlayerGui),
-    -- jadi cara paling pasti adalah meniru orang mengetik: isi kotak chat lalu
-    -- submit (Enter). TextChatService / chat lama hanya cadangan.
-    -- Kotak chat dikenali otomatis (nama mengandung "chat") atau dipelajari saat
-    -- kamu mengetik command (mis. /spam on) lewat kotak chat itu.
-    ------------------------------------------------------------------
-    Spam.chatBox = nil
-    Spam.method = nil
-
-    local function IsBoxUsable(box)
-        return box and box.Parent and box:IsA("TextBox") and box:IsDescendantOf(PlayerGui)
-            and not box:FindFirstAncestor("PeexHubGB")
-    end
-
-    function Spam.FindBox()
-        if IsBoxUsable(Spam.chatBox) then
-            return Spam.chatBox
-        end
-        Spam.chatBox = nil
-        local best, bestScore = nil, 0
-        for _, obj in ipairs(PlayerGui:GetDescendants()) do
-            if obj:IsA("TextBox") and IsBoxUsable(obj) then
-                local score = 0
-                if obj:GetFullName():lower():find("chat", 1, true) then
-                    score += 5
-                end
-                if obj.PlaceholderText ~= "" and obj.PlaceholderText:lower():find("chat", 1, true) then
-                    score += 5
-                end
-                if score > 0 and obj.Visible then
-                    score += 1
-                end
-                if score > bestScore then
-                    best, bestScore = obj, score
-                end
-            end
-        end
-        if best then
-            Spam.chatBox = best
-        end
-        return best
-    end
-
-    local function SendViaBox(box, text)
-        local ok = pcall(function()
-            box:CaptureFocus()
-            task.wait(0.06)
-            box.Text = text
-            task.wait(0.06)
-            box:ReleaseFocus(true) -- FocusLost(enterPressed = true) = submit
-        end)
-        task.wait(0.15)
-        -- kalau teks masih nempel, game belum memprosesnya: picu handler FocusLost langsung
-        if (not ok or box.Text == text) and getconnections then
-            pcall(function()
-                box.Text = text
-                for _, conn in ipairs(getconnections(box.FocusLost)) do
-                    pcall(function() conn:Fire(true, nil) end)
-                end
-            end)
-            task.wait(0.1)
-            pcall(function()
-                if box.Text == text then
-                    box.Text = ""
-                end
-            end)
-            return true
-        end
-        return ok
-    end
-
-    function Spam.Send(text)
-        local box = Spam.FindBox()
-        if box and SendViaBox(box, text) then
-            Spam.method = "kotak chat game"
-            return true
-        end
-
-        local sent = false
-        pcall(function()
-            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-                local channels = TextChatService:FindFirstChild("TextChannels")
-                local channel = channels and (channels:FindFirstChild("RBXGeneral")
-                    or channels:FindFirstChildWhichIsA("TextChannel"))
-                if channel then
-                    channel:SendAsync(text)
-                    sent = true
-                end
-            end
-        end)
-        if sent then
-            Spam.method = "TextChatService"
-            return true
-        end
-        pcall(function()
-            local events = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-            local say = events and events:FindFirstChild("SayMessageRequest")
-            if say then
-                say:FireServer(text, "All")
-                sent = true
-            end
-        end)
-        if sent then
-            Spam.method = "chat lama"
-        end
-        return sent
-    end
-
-    function Spam.SetText(text)
-        text = Trim(tostring(text or ""))
-        if text == "" then
-            Config.spamText = ""
-            SaveConfig()
-            Notify("Teks spam dikosongkan.")
-            return true
-        end
-        if text:sub(1, 1) == "/" then
-            Notify("Teks spam tidak boleh diawali \"/\" (dianggap command oleh game).")
-            return false
-        end
-        if #text > MAX_CHAT then
-            text = text:sub(1, MAX_CHAT)
-        end
-        Config.spamText = text
-        SaveConfig()
-        Notify("Teks spam diset: " .. text)
-        return true
-    end
-
-    function Spam.Stop()
-        if not Spam.on then
-            return false
-        end
-        Spam.on = false
-        Spam.token += 1
-        return true
-    end
-
-    function Spam.Start()
-        if Spam.on then
-            return true
-        end
-        if Trim(Config.spamText or "") == "" then
-            Notify("Teks spam masih kosong. Isi dulu: " .. Config.prefix .. "setspam <teks> atau lewat tab Spam.")
-            return false
-        end
-        Spam.on = true
-        Spam.token += 1
-        local token = Spam.token
-        task.spawn(function()
-            local fails = 0
-            while Spam.on and Spam.token == token do
-                local msg = Trim(Config.spamText or "")
-                if msg ~= "" then
-                    -- tandai supaya pesan ini tidak diproses sebagai command oleh hook chat
-                    Spam.guardText = msg:lower()
-                    Spam.guardT = os.clock()
-                    if Spam.Send(msg) then
-                        fails = 0
-                        if Spam.method ~= Spam.notified then
-                            Spam.notified = Spam.method
-                            Notify("Spam terkirim lewat: " .. tostring(Spam.method)
-                                .. (Spam.chatBox and "" or ". Kalau tidak muncul di chat, ketik 1 command (mis. "
-                                .. Config.prefix .. "pos) lewat kotak chat supaya script mengenalinya."))
-                        end
-                    else
-                        fails += 1
-                    end
-                    if fails >= 3 then
-                        Spam.on = false
-                        Config.session.spam = nil
-                        SaveConfig()
-                        Notify("Spam berhenti: pesan gagal terkirim 3 kali (chat tidak ditemukan / dibatasi).")
-                        if RefreshHub then
-                            RefreshHub()
-                        end
-                        return
-                    end
-                end
-                local delay = math.max(1.5, tonumber(Config.spamDelay) or 3)
-                local waited = 0
-                while Spam.on and Spam.token == token and waited < delay do
-                    task.wait(0.1)
-                    waited += 0.1
-                end
-            end
-        end)
-        return true
-    end
+Auto.walkTo = walkTo
+Auto.startSpliceRoam = startSpliceRoam
+Auto.stopSpliceRoam = stopSpliceRoam
+Auto.treeReadyAt = treeReadyAt
+Auto.plantSpotOk = plantSpotOk
+Auto.stopWalk = function() Move.Homing = false end
+Auto.here = function()
+    local s = playerState()
+    if s then return startNode(s) end
+    return nil
 end
+Auto.startClear = startClear
+Auto.startFarmer = startFarmer
+Auto.updateClearStatus = updateClearStatus
+Auto.updateFarmerStatus = updateFarmerStatus
+Auto.findTreeRefs = findTreeRefs
+Auto.releaseInput = releaseInput
+Auto.BadEdge = BadEdge
+Auto.ClearFail = ClearFail
+Auto.resetReach = function() Reach = nil end
+end)() end -- do (gerak otomatis)
 
-local Features = {
-    blink = {
-        label = "Blink",
-        get = function() return blinkOn end,
-        set = function(on)
-            if on then return StartBlink() end
-            return StopBlink()
-        end,
-    },
-    longhand = {
-        label = "Longhand",
-        get = function() return longhandOn end,
-        set = function(on)
-            if on then return ApplyLonghand() end
-            return StopLonghand()
-        end,
-    },
-    noclip = {
-        label = "Noclip",
-        get = function() return noclipOn end,
-        set = function(on)
-            if on then return StartNoclip() end
-            return StopNoclip()
-        end,
-    },
-    ujump = {
-        label = "Unlimited Jump",
-        get = function() return ujumpOn end,
-        set = function(on)
-            if on then return StartUjump() end
-            return StopUjump()
-        end,
-    },
-    antiafk = {
-        label = "Anti-AFK",
-        get = function() return antiAfkOn end,
-        set = function(on)
-            if on then return StartAntiAfk() end
-            return StopAntiAfk()
-        end,
-    },
-    autorejoin = {
-        label = "Auto Rejoin",
-        get = function() return arjOn end,
-        set = function(on)
-            if on then return StartAutoRejoin() end
-            return StopAutoRejoin()
-        end,
-    },
-    god = {
-        label = "God Mode",
-        get = function() return godOn end,
-        set = function(on)
-            if on then return StartGod() end
-            return StopGod()
-        end,
-    },
-    clicktp = {
-        label = "Click TP",
-        get = function() return Nav.clickOn end,
-        set = function(on)
-            if on then return Nav.StartClick() end
-            return Nav.StopClick()
-        end,
-    },
-    spam = {
-        label = "Spam Chat",
-        get = function() return Spam.on end,
-        set = function(on)
-            if on then return Spam.Start() end
-            return Spam.Stop()
-        end,
-    },
-    autoclear = {
-        label = "Auto Clear World",
-        get = function() return Clear.on end,
-        set = function(on)
-            if on then return Clear.Start() end
-            return Clear.Stop()
-        end,
-    },
-    dirtfarm = {
-        label = "Auto Dirt Farm",
-        noSession = true,
-        get = function() return DirtFarm.on end,
-        set = function(on)
-            if on then return DirtFarm.Start() end
-            return DirtFarm.Stop()
-        end,
-    },
-    breakid = {
-        label = "Auto Break ID",
-        noSession = true,
-        get = function() return BreakId.on end,
-        set = function(on)
-            if on then return BreakId.Start() end
-            return BreakId.Stop()
-        end,
-    },
-    autofarm = {
-        label = "Auto Farm",
-        noSession = true,
-        get = function() return farmOn end,
-        set = function(on)
-            if on then return StartFarm() end
-            return StopFarm()
-        end,
-    },
-    autoquest = {
-        label = "Auto Quest",
-        noSession = true,
-        get = function() return questOn end,
-        set = function(on)
-            if on then return StartQuest() end
-            return StopQuest()
-        end,
-    },
-}
+---------------------------------------------------------------------
+-- AUTO CHAT
+---------------------------------------------------------------------
+-- Pesan dikirim ke chat world, bergantian sesuai urutan
+local TextChatService = game:GetService("TextChatService")
 
-local function SetFeature(key, on)
-    local feature = Features[key]
-    feature.set(on)
-    if feature.get() == on then
-        Notify(feature.label .. (on and " aktif." or " dimatikan."))
-        if not feature.noSession then
-            Config.session[key] = on or nil
+local function worldChannel()
+    local folder = TextChatService:FindFirstChild("WorldChannels")
+    if not folder then return nil end
+    local name = Refs.World and Refs.World.name
+    if type(name) == "string" and name ~= "" then
+        local ch = folder:FindFirstChild(name)
+        if ch then return ch end
+    end
+    -- cadangan: cari channel yang ada kita
+    for _, ch in ipairs(folder:GetChildren()) do
+        if ch:IsA("TextChannel") then
+            for _, src in ipairs(ch:GetChildren()) do
+                if src:IsA("TextSource") and src.UserId == LocalPlayer.UserId then return ch end
+            end
         end
-        SaveConfig()
-    end
-    if RefreshHub then
-        RefreshHub()
-    end
-end
-
-----------------------------------------------------------------------
--- SESI: simpan, auto-reload setelah teleport, pulihkan fitur
-----------------------------------------------------------------------
-local function ReloadSource()
-    local url = Config.scriptUrl
-    if type(url) ~= "string" or url == "" then
-        url = genv.PeexHubURL
-    end
-    if type(url) == "string" and url ~= "" then
-        return string.format("loadstring(game:HttpGet(%q))()", url)
-    end
-    local okFile, exists = pcall(function()
-        return isfile and readfile and isfile(SCRIPT_FILE)
-    end)
-    if okFile and exists then
-        return string.format("loadstring(readfile(%q))()", SCRIPT_FILE)
     end
     return nil
 end
 
-local function GetQueueFn()
-    return queue_on_teleport
-        or (syn and syn.queue_on_teleport)
-        or (fluxus and fluxus.queue_on_teleport)
+local function parseSpamTexts(raw)
+    local out = {}
+    for part in string.gmatch(raw or "", "[^|\n]+") do
+        part = part:gsub("^%s+", ""):gsub("%s+$", "")
+        if part ~= "" then out[#out + 1] = part end
+    end
+    return out
 end
 
-local function ReloadReady()
-    return GetQueueFn() ~= nil and ReloadSource() ~= nil
-end
-
-QueueReload = function()
-    if not Config.autoReload then
-        return false
-    end
-    local queueFn = GetQueueFn()
-    local source = ReloadSource()
-    if not queueFn or not source then
-        return false
-    end
-    return pcall(queueFn, source)
-end
-
-local function InstallAutoexec()
-    if not writefile then
-        Notify("Executor tidak punya writefile.")
-        return
-    end
-    local source = ReloadSource()
-    if not source then
-        Notify("Simpan skrip sebagai " .. SCRIPT_FILE .. " di folder workspace, atau isi URL dulu.")
-        return
-    end
-    local loader = "-- Peex HUB | GrowBlox auto-loader\n" .. source .. "\n"
-    pcall(writefile, "PeexHub_Loader.lua", loader) -- salinan manual di workspace
-
-    for _, path in ipairs({ "../autoexec/PeexHub_Loader.lua", "../Autoexec/PeexHub_Loader.lua" }) do
-        local okWrite = pcall(writefile, path, loader)
-        local okCheck, exists = pcall(function()
-            return isfile and isfile(path)
-        end)
-        if okWrite and okCheck and exists then
-            Notify("Auto-execute terpasang. Skrip jalan otomatis tiap buka Roblox.")
-            return
-        end
-    end
-    Notify("Folder autoexec tidak terjangkau. Salin PeexHub_Loader.lua dari workspace ke folder autoexec executor.")
-end
-
-local function SaveSessionNow()
-    Config.session = {}
-    for key, feature in pairs(Features) do
-        if feature.get() and not feature.noSession then
-            Config.session[key] = true
-        end
-    end
-    local world = CurrentWorldName()
-    if world ~= "" then
-        Config.lastWorld = world
-    end
-    SaveConfig()
-end
-
-local function RestoreSession()
-    if not Config.autoRestore then
-        return
-    end
-
-    local waited = 0
-    while not (FindInventory() and FindWorld()) and waited < 60 do
-        task.wait(1)
-        waited += 1
-    end
-    waited = 0
-    while CurrentWorldName() == "" and waited < 20 do
-        task.wait(1)
-        waited += 1
-    end
-    task.wait(1.5)
-
-    if Config.autoWarp and Config.lastWorld ~= "" and CurrentWorldName() ~= Config.lastWorld then
-        WarpToWorld(Config.lastWorld)
-        task.wait(4)
-    end
-
-    local restored = {}
-    for key, feature in pairs(Features) do
-        if Config.session[key] and not feature.get() then
-            local ok = pcall(feature.set, true)
-            if ok and feature.get() then
-                table.insert(restored, feature.label)
-            end
-        end
-    end
-    if RefreshHub then
-        RefreshHub()
-    end
-    if #restored > 0 then
-        table.sort(restored)
-        Notify("Sesi dipulihkan: " .. table.concat(restored, ", "))
-    end
-end
-
-----------------------------------------------------------------------
--- GUI  (tampilan PeexHub: gradient biru-ungu, kartu, toast, tombol P)
-----------------------------------------------------------------------
-local C = {
-    window = Color3.fromRGB(10, 14, 26),
-    panel = Color3.fromRGB(16, 22, 38),
-    card = Color3.fromRGB(23, 31, 52),
-    cardHi = Color3.fromRGB(37, 49, 80),
-    stroke = Color3.fromRGB(54, 68, 104),
-    accent = Color3.fromRGB(56, 189, 248),   -- biru langit
-    accent2 = Color3.fromRGB(167, 139, 250), -- ungu
-    text = Color3.fromRGB(236, 242, 255),
-    mute = Color3.fromRGB(143, 160, 192),
-    ok = Color3.fromRGB(52, 211, 153),
-    bad = Color3.fromRGB(244, 94, 112),
-    warn = Color3.fromRGB(251, 191, 36),
-}
-local CARTOON_FONT = Enum.Font.GothamMedium
--- nama font yang dipakai halaman-halaman di bawah
-local UI_FONT, UI_FONT_BOLD = CARTOON_FONT, Enum.Font.GothamBold
-
-local function New(class, props, parent)
-    local obj = Instance.new(class)
-    for key, value in pairs(props) do
-        obj[key] = value
-    end
-    obj.Parent = parent
-    return obj
-end
-
-local function Corner(obj, radius)
-    return New("UICorner", { CornerRadius = UDim.new(0, radius or 10) }, obj)
-end
-
-local function Stroke(obj, color, thickness, transparency)
-    return New("UIStroke", {
-        Color = color,
-        Thickness = thickness or 1,
-        Transparency = transparency or 0,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-    }, obj)
-end
-
-local function Tween(obj, duration, props, style, dir)
-    TweenService:Create(obj, TweenInfo.new(duration, style or Enum.EasingStyle.Quad,
-        dir or Enum.EasingDirection.Out), props):Play()
-end
-
-local function Label(parent, props)
-    local p = {
-        BackgroundTransparency = 1,
-        TextColor3 = C.text,
-        Font = CARTOON_FONT,
-        TextSize = 13,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextWrapped = true,
-    }
-    for key, value in pairs(props) do
-        p[key] = value
-    end
-    return New("TextLabel", p, parent)
-end
-
--- helper tambahan (dikumpulkan dalam satu tabel supaya tidak menambah banyak local)
-local UI = {}
-function UI.Gradient(obj, c1, c2, rotation)
-    return New("UIGradient", { Color = ColorSequence.new(c1, c2), Rotation = rotation or 0 }, obj)
-end
-
-local rootGui = nil
-local function GetGui()
-    if rootGui and rootGui.Parent then
-        return rootGui
-    end
-    local existing = FindExistingGui()
-    if existing and existing:IsA("ScreenGui") then
-        rootGui = existing
-        return rootGui
-    end
-
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "PeexHubGB"
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.DisplayOrder = 999
-    gui.IgnoreGuiInset = true
-    gui.Enabled = true
-
-    pcall(function()
-        if syn and syn.protect_gui then
-            syn.protect_gui(gui)
-        end
-    end)
-
-    local parented = false
-    if gethui then
-        parented = pcall(function()
-            gui.Parent = gethui()
-        end) and gui.Parent ~= nil
-    end
-    if not parented then
-        parented = pcall(function()
-            gui.Parent = game:GetService("CoreGui")
-        end) and gui.Parent ~= nil
-    end
-    if not parented then
-        gui.Parent = PlayerGui
-    end
-
-    rootGui = gui
-    return rootGui
-end
-
--- Toast ---------------------------------------------------------------
-local toastHolder = nil
-local toastCounter = 0
-
-ToastHook = function(message)
-    local gui = GetGui()
-    if not toastHolder or not toastHolder.Parent then
-        toastHolder = New("Frame", {
-            Name = "Toasts",
-            BackgroundTransparency = 1,
-            Size = UDim2.new(0, 270, 1, -80),
-            Position = UDim2.new(1, -284, 0, 16),
-            ZIndex = 100,
-        }, gui)
-        New("UIListLayout", {
-            Padding = UDim.new(0, 8),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-            VerticalAlignment = Enum.VerticalAlignment.Top,
-        }, toastHolder)
-    end
-
-    toastCounter += 1
-    local existing = {}
-    for _, child in ipairs(toastHolder:GetChildren()) do
-        if child:IsA("Frame") then
-            table.insert(existing, child)
-        end
-    end
-    if #existing >= 4 then
-        existing[1]:Destroy()
-    end
-
-    local toast = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundColor3 = C.card,
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ClipsDescendants = true,
-        LayoutOrder = toastCounter,
-        ZIndex = 100,
-    }, toastHolder)
-    Corner(toast, 12)
-    local toastStroke = Stroke(toast, C.accent, 1, 1)
-
-    local stripe = New("Frame", {
-        Position = UDim2.fromOffset(0, 0),
-        Size = UDim2.new(0, 4, 1, 0),
-        BackgroundColor3 = C.accent,
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 101,
-    }, toast)
-    UI.Gradient(stripe, C.accent, C.accent2, 90)
-
-    local text = Label(toast, {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        Text = message,
-        TextSize = 12,
-        TextTransparency = 1,
-        ZIndex = 101,
-    })
-    New("UIPadding", {
-        PaddingLeft = UDim.new(0, 16),
-        PaddingRight = UDim.new(0, 12),
-        PaddingTop = UDim.new(0, 10),
-        PaddingBottom = UDim.new(0, 13),
-    }, text)
-
-    local progress = New("Frame", {
-        AnchorPoint = Vector2.new(0, 1),
-        Position = UDim2.new(0, 0, 1, 0),
-        Size = UDim2.new(1, 0, 0, 2),
-        BackgroundColor3 = C.accent2,
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ZIndex = 102,
-    }, toast)
-
-    Tween(toast, 0.22, { BackgroundTransparency = 0.04 })
-    Tween(toastStroke, 0.22, { Transparency = 0.45 })
-    Tween(stripe, 0.22, { BackgroundTransparency = 0 })
-    Tween(text, 0.22, { TextTransparency = 0 })
-    Tween(progress, 0.22, { BackgroundTransparency = 0.2 })
-    Tween(progress, 3.5, { Size = UDim2.new(0, 0, 0, 2) }, Enum.EasingStyle.Linear)
-
-    task.delay(3.5, function()
-        if not toast.Parent then
-            return
-        end
-        Tween(toast, 0.25, { BackgroundTransparency = 1 })
-        Tween(toastStroke, 0.25, { Transparency = 1 })
-        Tween(stripe, 0.25, { BackgroundTransparency = 1 })
-        Tween(text, 0.25, { TextTransparency = 1 })
-        Tween(progress, 0.25, { BackgroundTransparency = 1 })
-        task.wait(0.3)
-        toast:Destroy()
+local lastSpamText = nil
+local function updateSpamStatus()
+    if not UI.SpamStatus then return end
+    local txt = "Status   : " .. (Spam.On and "JALAN" or "BERHENTI")
+        .. "\nPesan    : " .. #Spam.Texts .. " (bergantian)"
+        .. "\nTerkirim : " .. Spam.Sent
+        .. "\nTerakhir : " .. Spam.Last
+    if txt == lastSpamText then return end
+    lastSpamText = txt
+    task.defer(function()
+        pcall(function() UI.SpamStatus:SetDesc(txt) end)
     end)
 end
 
-local hub = {
-    frame = nil,
-    minimized = false,
-    scale = nil,
-    pages = {},
-    builders = {},
-    tabs = {},
-    refreshers = {},
-    active = nil,
-    narrow = false,
-}
-
-local orders = setmetatable({}, { __mode = "k" })
-local function NextOrder(parent)
-    local n = (orders[parent] or 0) + 1
-    orders[parent] = n
-    return n
-end
-
-RefreshHub = function()
-    for _, refresh in ipairs(hub.refreshers) do
-        pcall(refresh)
+-- Kirim pesan berikutnya
+local function sendNextChat()
+    if #Spam.Texts == 0 then
+        Spam.Last = "Daftar pesan kosong"
+        return false
     end
-end
-
--- Komponen -----------------------------------------------------------
-local function AddCard(page, height)
-    local card = New("Frame", {
-        Size = UDim2.new(1, 0, 0, height),
-        BackgroundColor3 = C.card,
-        BorderSizePixel = 0,
-        LayoutOrder = NextOrder(page),
-    }, page)
-    Corner(card, 12)
-    Stroke(card, C.stroke, 1, 0.55)
-    New("UIGradient", {
-        Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(205, 214, 240)),
-        Rotation = 90,
-    }, card)
-    return card
-end
-
-local function AddSection(page, text)
-    local row = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 26),
-        BackgroundTransparency = 1,
-        LayoutOrder = NextOrder(page),
-    }, page)
-    local pill = New("Frame", {
-        Position = UDim2.new(0, 2, 0.5, -7),
-        Size = UDim2.fromOffset(3, 14),
-        BackgroundColor3 = C.accent,
-        BorderSizePixel = 0,
-    }, row)
-    Corner(pill, 2)
-    UI.Gradient(pill, C.accent, C.accent2, 90)
-    Label(row, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -12, 1, 0),
-        Text = string.upper(text),
-        TextColor3 = C.mute,
-        Font = Enum.Font.GothamBold,
-        TextSize = 11,
-        TextWrapped = false,
-    })
-    return row
-end
-
-local function AddNote(page, text)
-    local box = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundColor3 = C.card,
-        BackgroundTransparency = 0.5,
-        BorderSizePixel = 0,
-        LayoutOrder = NextOrder(page),
-    }, page)
-    Corner(box, 10)
-    Stroke(box, C.stroke, 1, 0.75)
-    New("UIPadding", {
-        PaddingLeft = UDim.new(0, 12),
-        PaddingRight = UDim.new(0, 12),
-        PaddingTop = UDim.new(0, 9),
-        PaddingBottom = UDim.new(0, 9),
-    }, box)
-    Label(box, {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        Text = text,
-        TextColor3 = C.mute,
-        TextSize = 12,
-    })
-    return box
-end
-
-local function StyleButton(button, style)
-    local base, hover
-    if style == "primary" then
-        base, hover = C.accent, Color3.fromRGB(125, 211, 252)
-        UI.Gradient(button, Color3.new(1, 1, 1), Color3.fromRGB(196, 176, 255), 0)
-    elseif style == "danger" then
-        base, hover = C.bad, Color3.fromRGB(252, 129, 143)
+    local ch = worldChannel()
+    if not ch then
+        Spam.Last = "Channel chat world belum ada (masuk world dulu)"
+        return false
+    end
+    if Spam.Index > #Spam.Texts then Spam.Index = 1 end
+    local msg = Spam.Texts[Spam.Index]
+    Spam.Index = Spam.Index % #Spam.Texts + 1
+    local ok, err = pcall(ch.SendAsync, ch, msg)
+    if ok then
+        Spam.Sent += 1
+        Spam.Last = msg
     else
-        base, hover = C.cardHi, Color3.fromRGB(53, 68, 108)
+        Spam.Last = "Gagal: " .. tostring(err)
     end
-    button.BackgroundColor3 = base
-    button.AutoButtonColor = false
-    local scale = New("UIScale", { Scale = 1 }, button)
-    button.MouseEnter:Connect(function()
-        Tween(button, 0.12, { BackgroundColor3 = hover })
-    end)
-    button.MouseLeave:Connect(function()
-        Tween(button, 0.12, { BackgroundColor3 = base })
-        Tween(scale, 0.1, { Scale = 1 })
-    end)
-    button.MouseButton1Down:Connect(function()
-        Tween(scale, 0.07, { Scale = 0.96 })
-    end)
-    button.MouseButton1Up:Connect(function()
-        Tween(scale, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
-    end)
+    return ok
 end
 
-local function MakeButton(parent, text, style, props)
-    local p = {
-        Size = UDim2.new(1, 0, 0, 36),
-        Text = text,
-        TextColor3 = Color3.new(1, 1, 1),
-        Font = Enum.Font.GothamSemibold,
-        TextSize = 12,
-        BorderSizePixel = 0,
-    }
-    for key, value in pairs(props or {}) do
-        p[key] = value
-    end
-    local button = New("TextButton", p, parent)
-    Corner(button, 9)
-    Stroke(button, style == "ghost" and C.stroke or Color3.new(1, 1, 1), 1, style == "ghost" and 0.35 or 0.85)
-    StyleButton(button, style)
-    return button
-end
-
-local function AddButton(page, text, style, callback)
-    local button = MakeButton(page, text, style, { LayoutOrder = NextOrder(page) })
-    button.MouseButton1Click:Connect(callback)
-    return button
-end
-
-local function AddSwitchCard(page, title, subtitle, getState, onToggle)
-    local card = AddCard(page, 62)
-    local cardStroke = card:FindFirstChildOfClass("UIStroke")
-
-    Label(card, {
-        Text = title,
-        Font = Enum.Font.GothamSemibold,
-        Position = UDim2.fromOffset(14, 9),
-        Size = UDim2.new(1, -86, 0, 18),
-        TextWrapped = false,
-    })
-    Label(card, {
-        Text = subtitle,
-        TextColor3 = C.mute,
-        TextSize = 11,
-        Position = UDim2.fromOffset(14, 28),
-        Size = UDim2.new(1, -86, 0, 30),
-        TextYAlignment = Enum.TextYAlignment.Top,
-    })
-
-    local track = New("Frame", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -14, 0.5, 0),
-        Size = UDim2.fromOffset(46, 24),
-        BackgroundColor3 = C.cardHi,
-        BorderSizePixel = 0,
-    }, card)
-    Corner(track, 12)
-    local trackGrad = UI.Gradient(track, Color3.new(1, 1, 1), Color3.fromRGB(196, 176, 255), 0)
-    trackGrad.Enabled = false
-
-    local knob = New("Frame", {
-        AnchorPoint = Vector2.new(0, 0.5),
-        Position = UDim2.new(0, 3, 0.5, 0),
-        Size = UDim2.fromOffset(18, 18),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        BorderSizePixel = 0,
-    }, track)
-    Corner(knob, 9)
-
-    local hit = New("TextButton", {
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        Text = "",
-    }, card)
-
-    local function Refresh()
-        local on = getState()
-        trackGrad.Enabled = on
-        Tween(track, 0.18, { BackgroundColor3 = on and C.accent or C.cardHi })
-        Tween(knob, 0.22, {
-            Position = on and UDim2.new(1, -21, 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
-        }, Enum.EasingStyle.Back)
-        if cardStroke then
-            Tween(cardStroke, 0.18, {
-                Color = on and C.accent or C.stroke,
-                Transparency = on and 0.3 or 0.55,
-            })
+Spam.NextAt = 0
+task.spawn(function()
+    while alive() do
+        if Spam.On and os.clock() >= Spam.NextAt then
+            sendNextChat()
+            Spam.NextAt = os.clock() + math.max(3, Spam.IntervalSec)
+            updateSpamStatus()
         end
+        task.wait(0.25)
     end
+end)
 
-    hit.MouseEnter:Connect(function()
-        Tween(card, 0.12, { BackgroundColor3 = Color3.fromRGB(30, 41, 68) })
-    end)
-    hit.MouseLeave:Connect(function()
-        Tween(card, 0.12, { BackgroundColor3 = C.card })
-    end)
-    hit.MouseButton1Click:Connect(function()
-        onToggle(not getState())
-        Refresh()
-    end)
+---------------------------------------------------------------------
+-- WATERMARK NAMA FIAN792 (hanya di layar sendiri)
+---------------------------------------------------------------------
+-- Nama asli (huruf gambar "BitmapText") disembunyikan, diganti teks beranimasi:
+-- warna gradient mengalir + denyut halus. Pemain lain tetap melihat nama asli.
+-- Selalu aktif sebagai penanda script (tidak ada tombol on/off).
+local TextService = game:GetService("TextService")
+local NameFx = { t0 = os.clock() }
 
-    table.insert(hub.refreshers, Refresh)
-    Refresh()
+local NAME_COLORS = ColorSequence.new({
+    ColorSequenceKeypoint.new(0.00, Color3.fromRGB(170, 90, 255)),  -- ungu
+    ColorSequenceKeypoint.new(0.25, Color3.fromRGB(60, 205, 255)),  -- biru muda
+    ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 110, 210)), -- pink
+    ColorSequenceKeypoint.new(0.75, Color3.fromRGB(60, 205, 255)),
+    ColorSequenceKeypoint.new(1.00, Color3.fromRGB(170, 90, 255)),
+})
+local NAME_FONT = Enum.Font.FredokaOne
+
+-- Tempat nama: di atas karakter & panel kiri atas
+local function nameHolders()
+    local gg = PlayerGui:FindFirstChild("GameGui")
+    local world = gg and gg:FindFirstChild("World")
+    local cam = world and world:FindFirstChild("Camera")
+    local chat = PlayerGui:FindFirstChild("ChatGui")
+    local hud = chat and chat:FindFirstChild("HUD")
+    local panel = hud and hud:FindFirstChild("PlayerPanel")
+    return cam and cam:FindFirstChild("NameTag"), panel and panel:FindFirstChild("Name")
 end
 
-local function AddInputCard(page, title, subtitle, value, placeholder, onCommit)
-    local card = AddCard(page, 60)
-    local boxWidth = hub.narrow and 88 or 120
-
-    Label(card, {
-        Text = title,
-        Font = Enum.Font.GothamSemibold,
-        TextSize = 12,
-        Position = UDim2.fromOffset(14, 8),
-        Size = UDim2.new(1, -(boxWidth + 34), 0, 16),
-        TextWrapped = false,
-    })
-    Label(card, {
-        Text = subtitle,
-        TextColor3 = C.mute,
-        TextSize = 10,
-        Position = UDim2.fromOffset(14, 26),
-        Size = UDim2.new(1, -(boxWidth + 34), 0, 30),
-        TextYAlignment = Enum.TextYAlignment.Top,
-    })
-
-    local box = New("TextBox", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -12, 0.5, 0),
-        Size = UDim2.fromOffset(boxWidth, 34),
-        BackgroundColor3 = C.window,
-        BorderSizePixel = 0,
-        Text = tostring(value),
-        PlaceholderText = placeholder or "",
-        TextColor3 = C.text,
-        PlaceholderColor3 = C.mute,
-        Font = Enum.Font.GothamSemibold,
-        TextSize = 13,
-        ClearTextOnFocus = false,
-        TextXAlignment = Enum.TextXAlignment.Center,
-    }, card)
-    Corner(box, 9)
-    local boxStroke = Stroke(box, C.stroke, 1, 0.2)
-
-    box.Focused:Connect(function()
-        Tween(boxStroke, 0.12, { Color = C.accent, Thickness = 1.5 })
-    end)
-    box.FocusLost:Connect(function()
-        Tween(boxStroke, 0.12, { Color = C.stroke, Thickness = 1 })
-        onCommit(box.Text, box)
-    end)
-    return box
+local function textWidth(text, size)
+    local ok, v = pcall(TextService.GetTextSize, TextService, text, size, NAME_FONT, Vector2.new(2000, 200))
+    return (ok and v.X or #text * size * 0.55) + 6 -- +6 untuk garis tepi
 end
 
-local function ClearPage(page)
-    for _, child in ipairs(page:GetChildren()) do
-        if not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
-            child:Destroy()
+local function makeLabel(holder, size, isTag)
+    local lb = Instance.new("TextLabel")
+    lb.Name = "FianName"
+    lb.BackgroundTransparency = 1
+    lb.Font = NAME_FONT
+    lb.TextSize = size
+    lb.TextColor3 = Color3.new(1, 1, 1)
+    lb.Text = Misc.NameText
+    lb.ZIndex = isTag and 1017 or 10
+    if isTag then
+        lb.AnchorPoint = Vector2.new(0.5, 0.5) -- denyut dari tengah
+        lb.Position = UDim2.fromScale(0.5, 0.5)
+    else
+        lb.AnchorPoint = Vector2.new(0, 0.5)
+        lb.Position = UDim2.new(0, 3, 0.5, 0)
+        lb.TextXAlignment = Enum.TextXAlignment.Left
+    end
+    local st = Instance.new("UIStroke")
+    st.Thickness = 2
+    st.Color = Color3.fromRGB(25, 12, 40)
+    st.Transparency = 0.1
+    st.Parent = lb
+    local gr = Instance.new("UIGradient")
+    gr.Color = NAME_COLORS
+    gr.Rotation = 12
+    gr.Parent = lb
+    local sc = Instance.new("UIScale")
+    sc.Parent = lb
+    lb.Parent = holder
+    return { holder = holder, bitmap = holder:FindFirstChild("BitmapText"), label = lb, gr = gr, sc = sc,
+        size = size, isTag = isTag, text = nil, w = 0 }
+end
+
+local function dropEntry(e)
+    if not e then return end
+    pcall(function() e.label:Destroy() end)
+    if e.bitmap then pcall(function() e.bitmap.Visible = true end) end
+    if e.isTag and e.bitmap then
+        -- kembalikan ukuran tag & posisi wrench sesuai nama asli
+        pcall(function()
+            local bw = e.bitmap.Size.X.Offset
+            e.holder.Size = UDim2.fromOffset(bw, e.holder.Size.Y.Offset)
+            local wr = e.holder:FindFirstChild("Wrench")
+            if wr then wr.Position = UDim2.fromOffset(bw + 4, wr.Position.Y.Offset) end
+        end)
+    end
+end
+
+local function nameRestore()
+    dropEntry(NameFx.tag)
+    dropEntry(NameFx.panel)
+    NameFx.tag, NameFx.panel = nil, nil
+end
+
+-- Pastikan label ada, nama asli tersembunyi, ukuran tag pas dengan teks
+local function nameKeep(e, holder, size, isTag)
+    if not holder then
+        dropEntry(e)
+        return nil
+    end
+    if not e or e.holder ~= holder or not e.label.Parent then
+        dropEntry(e)
+        e = makeLabel(holder, size, isTag)
+    end
+    if e.text ~= Misc.NameText then
+        e.text = Misc.NameText
+        e.label.Text = Misc.NameText
+        e.w = textWidth(Misc.NameText, size)
+    end
+    if e.bitmap and e.bitmap.Visible then e.bitmap.Visible = false end
+    if isTag then
+        local h = math.max(holder.Size.Y.Offset, size + 6)
+        if e.label.Size.X.Offset ~= e.w or e.label.Size.Y.Offset ~= h then
+            e.label.Size = UDim2.fromOffset(e.w, h)
         end
+        if holder.Size.X.Offset ~= e.w then
+            holder.Size = UDim2.fromOffset(e.w, holder.Size.Y.Offset) -- bendera tetap di kiri nama
+        end
+        local wr = holder:FindFirstChild("Wrench")
+        if wr and wr.Position.X.Offset ~= e.w + 4 then
+            wr.Position = UDim2.fromOffset(e.w + 4, wr.Position.Y.Offset)
+        end
+    else
+        e.label.Size = UDim2.new(1, -6, 1, 0)
     end
-    orders[page] = 0
+    return e
 end
 
--- Halaman: Fitur -----------------------------------------------------
-hub.builders.features = function(page)
-    -- Kartu status live
-    local status = AddCard(page, 48)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        Font = CARTOON_FONT,
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local dot = New("Frame", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -12, 0.5, 0),
-        Size = UDim2.fromOffset(8, 8),
-        BackgroundColor3 = C.ok,
-        BorderSizePixel = 0,
-    }, status)
-    Corner(dot, 4)
+-- Animasi tiap frame: gradient mengalir + denyut halus
+table.insert(Connections, RunService.RenderStepped:Connect(function()
+    if not alive() or not Misc.CustomName then return end
+    local tag, panelName = nameHolders()
+    NameFx.tag = nameKeep(NameFx.tag, tag, 22, true)
+    NameFx.panel = nameKeep(NameFx.panel, panelName, 21, false)
+    local t = os.clock() - NameFx.t0
+    local offset = Vector2.new(((t * 0.45) % 2) - 1, 0)
+    local pulse = 1 + 0.045 * math.sin(t * 3.2)
+    local tg, pn = NameFx.tag, NameFx.panel
+    if tg then
+        tg.gr.Offset = offset
+        tg.sc.Scale = pulse
+    end
+    if pn then
+        pn.gr.Offset = offset
+        pn.sc.Scale = pulse
+    end
+end))
 
-    local function UpdateStatus()
-        local tx, ty = GetTile()
-        local worldName = CurrentWorldName()
-        if tx then
-            statusLabel.Text = string.format("World: %s   |   Tile: %d, %d", worldName ~= "" and worldName or "-", tx, ty)
-            dot.BackgroundColor3 = C.ok
+---------------------------------------------------------------------
+-- ANTI AFK
+---------------------------------------------------------------------
+table.insert(Connections, LocalPlayer.Idled:Connect(function()
+    if State.AntiAfk and alive() then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end))
+
+---------------------------------------------------------------------
+-- GUI TAMBAHAN: Grid Tile 5x5 + tombol Fly ▲/▼
+---------------------------------------------------------------------
+local guiParent = (gethui and gethui()) or game:GetService("CoreGui")
+
+local function newScreenGui(name)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = name
+    sg.ResetOnSpawn = false
+    sg.IgnoreGuiInset = true
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.DisplayOrder = 999
+    sg.Enabled = false
+    if syn and syn.protect_gui then pcall(syn.protect_gui, sg) end
+    sg.Parent = guiParent
+    return sg
+end
+
+local GRID_RADIUS = 2
+local CELL = 38
+local GAP = 4
+
+local GridGui = newScreenGui("FianGrid")
+UI.GridGui = GridGui
+
+local side = GRID_RADIUS * 2 + 1
+local gridSize = side * CELL + (side - 1) * GAP
+
+local Panel = Instance.new("Frame")
+Panel.Size = UDim2.fromOffset(gridSize + 20, gridSize + 96)
+Panel.Position = UDim2.fromOffset(20, 80)
+Panel.BackgroundColor3 = Color3.fromRGB(22, 22, 28)
+Panel.BorderSizePixel = 0
+Panel.Parent = GridGui
+Instance.new("UICorner", Panel).CornerRadius = UDim.new(0, 10)
+local pStroke = Instance.new("UIStroke", Panel)
+pStroke.Color = Color3.fromRGB(70, 70, 90)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -40, 0, 28)
+Title.Position = UDim2.fromOffset(10, 4)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 13
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextColor3 = Color3.fromRGB(235, 235, 245)
+Title.Text = I18N.T("Grid Tile")
+Title.Parent = Panel
+
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.fromOffset(24, 24)
+CloseBtn.Position = UDim2.new(1, -30, 0, 6)
+CloseBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 75)
+CloseBtn.Text = "X"
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 12
+CloseBtn.TextColor3 = Color3.new(1, 1, 1)
+CloseBtn.Parent = Panel
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+CloseBtn.MouseButton1Click:Connect(function()
+    GridGui.Enabled = false
+end)
+
+local GridHolder = Instance.new("Frame")
+GridHolder.Size = UDim2.fromOffset(gridSize, gridSize)
+GridHolder.Position = UDim2.fromOffset(10, 36)
+GridHolder.BackgroundTransparency = 1
+GridHolder.Parent = Panel
+
+local COLOR_OFF = Color3.fromRGB(48, 48, 60)
+local COLOR_ON = Color3.fromRGB(46, 160, 90)
+local COLOR_ME = Color3.fromRGB(60, 110, 220)
+local CellButtons = {}
+
+-- Grid dipakai untuk 2 hal: tile Auto Farm, atau tile break Pabrik
+UI.GridMode = "farm"
+UI.gridTarget = function()
+    return (UI.GridMode == "pabrik") and Pabrik.Tiles or State.Offsets
+end
+
+local function paintCell(key)
+    local b = CellButtons[key]
+    if b then b.BackgroundColor3 = UI.gridTarget()[key] and COLOR_ON or COLOR_OFF end
+end
+
+for row = 0, side - 1 do
+    for col = 0, side - 1 do
+        local dx, dy = col - GRID_RADIUS, row - GRID_RADIUS
+        local key = dx .. "," .. dy
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.fromOffset(CELL, CELL)
+        btn.Position = UDim2.fromOffset(col * (CELL + GAP), row * (CELL + GAP))
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 12
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Parent = GridHolder
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+        if dx == 0 and dy == 0 then
+            btn.Text = "ME"
+            btn.BackgroundColor3 = COLOR_ME
+            btn.AutoButtonColor = false
         else
-            statusLabel.Text = "Posisi tidak terdeteksi"
-            dot.BackgroundColor3 = C.bad
+            btn.Text = ""
+            btn.BackgroundColor3 = UI.gridTarget()[key] and COLOR_ON or COLOR_OFF
+            CellButtons[key] = btn
+            btn.MouseButton1Click:Connect(function()
+                local tgt = UI.gridTarget()
+                tgt[key] = (not tgt[key]) or nil
+                paintCell(key)
+                updateStatus()
+            end)
         end
     end
-    UpdateStatus()
+end
 
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.5)
-            if page.Visible then
-                pcall(UpdateStatus)
-            end
-        end
-    end)
+local GridStart = Instance.new("TextButton")
+GridStart.Size = UDim2.new(1, -20, 0, 30)
+GridStart.Position = UDim2.new(0, 10, 1, -54)
+GridStart.BackgroundColor3 = COLOR_ON
+GridStart.Font = Enum.Font.GothamBold
+GridStart.TextSize = 14
+GridStart.TextColor3 = Color3.new(1, 1, 1)
+GridStart.Text = "START"
+GridStart.Parent = Panel
+Instance.new("UICorner", GridStart).CornerRadius = UDim.new(0, 8)
+UI.GridStart = GridStart
+GridStart.MouseButton1Click:Connect(function()
+    if UI.GridMode == "pabrik" then
+        if Pabrik.Running then Pabrik.stop() else Pabrik.start() end
+    elseif State.Running and not State.Override then
+        stopFarm()
+    else
+        startFarm()
+    end
+end)
 
-    AddSection(page, "Fitur")
+local ClearBtn = Instance.new("TextButton")
+ClearBtn.Size = UDim2.new(1, -20, 0, 18)
+ClearBtn.Position = UDim2.new(0, 10, 1, -22)
+ClearBtn.BackgroundTransparency = 1
+ClearBtn.Font = Enum.Font.Gotham
+ClearBtn.TextSize = 12
+ClearBtn.TextColor3 = Color3.fromRGB(180, 180, 195)
+ClearBtn.Text = I18N.T("Bersihkan pilihan")
+ClearBtn.Parent = Panel
+ClearBtn.MouseButton1Click:Connect(function()
+    local tgt = UI.gridTarget()
+    for key in pairs(tgt) do
+        tgt[key] = nil
+        paintCell(key)
+    end
+    updateStatus()
+end)
 
-    AddSwitchCard(page, "Blink Skin", "Warna skin berganti otomatis tiap 0.2-0.5 detik.",
-        Features.blink.get, function(on) SetFeature("blink", on) end)
-    AddSwitchCard(page, "Longhand", "Jangkauan punch & build lebih jauh (atur tile di Setelan).",
-        Features.longhand.get, function(on) SetFeature("longhand", on) end)
-    AddSwitchCard(page, "Noclip", "Tembus blok & terbang (mode ghost). Naik: lompat, turun: bawah/S.",
-        Features.noclip.get, function(on) SetFeature("noclip", on) end)
-    AddSwitchCard(page, "Unlimited Jump", "Lompat di udara tanpa batas, bahkan tanpa sayap.",
-        Features.ujump.get, function(on) SetFeature("ujump", on) end)
-    AddSwitchCard(page, "Anti-AFK", "Mencegah kick karena idle.",
-        Features.antiafk.get, function(on) SetFeature("antiafk", on) end)
-    AddSwitchCard(page, "Auto Rejoin", "Rejoin otomatis ke world ini kalau terputus.",
-        Features.autorejoin.get, function(on) SetFeature("autorejoin", on) end)
-    AddSwitchCard(page, "God Mode", "Kebal lava, spike, api (burn), dan hazard tile lain. Tidak mencakup kick/ban staff.",
-        Features.god.get, function(on) SetFeature("god", on) end)
-    AddSwitchCard(page, "Auto Farm", "Atur kecepatan, ID block, dan pola place di tab Farm.",
-        Features.autofarm.get, function(on) SetFeature("autofarm", on) end)
-    AddSwitchCard(page, "Auto Clear World", "GrowScan, break 1-3 block per pukulan (bisa diatur), ambil drop (tab Auto Clear).",
-        Features.autoclear.get, function(on) SetFeature("autoclear", on) end)
-    AddSwitchCard(page, "Auto Dirt Farm", "Dig turun 2x + sapu baris, respawn, lalu place dirt naik (tab Dirt Farm).",
-        Features.dirtfarm.get, function(on) SetFeature("dirtfarm", on) end)
-    AddSwitchCard(page, "Click TP", "Klik tujuan, jalan lewat path tapi terlihat seperti teleport.",
-        Features.clicktp.get, function(on) SetFeature("clicktp", on) end)
-    AddSwitchCard(page, "Auto Quest", "Claim dan kerjakan quest otomatis (lihat tab Quest).",
-        Features.autoquest.get, function(on) SetFeature("autoquest", on) end)
-    AddSwitchCard(page, "Hidden Name", "Sembunyikan nama jadi [HIDDEN] (tampilan lokal). Pilih mode lengkap di tab Hidden Name.",
-        function() return Config.hiddenNameMode ~= "off" end,
-        function(on) HiddenName.SetMode(on and "self" or "off") end)
+-- Tombol ganti mode Grid: Farm (tile Auto Farm) / Pabrik (tile break pabrik)
+do (function()
+    local ModeBtn = Instance.new("TextButton")
+    ModeBtn.Size = UDim2.fromOffset(62, 22)
+    ModeBtn.Position = UDim2.new(1, -98, 0, 7)
+    ModeBtn.Font = Enum.Font.GothamBold
+    ModeBtn.TextSize = 11
+    ModeBtn.TextColor3 = Color3.new(1, 1, 1)
+    ModeBtn.Parent = Panel
+    Instance.new("UICorner", ModeBtn).CornerRadius = UDim.new(0, 6)
+    Title.Size = UDim2.new(1, -106, 0, 28)
 
-    AddSection(page, "Aksi cepat")
-
-    local dropCard = AddCard(page, 96)
-    Label(dropCard, {
-        Text = "Drop World Lock",
-        Font = CARTOON_FONT,
-        TextSize = 12,
-        Position = UDim2.fromOffset(12, 8),
-        Size = UDim2.new(1, -24, 0, 16),
-        TextWrapped = false,
-    })
-    local amountBox = New("TextBox", {
-        Position = UDim2.fromOffset(12, 30),
-        Size = UDim2.new(0.5, -17, 0, 28),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        Text = "100",
-        PlaceholderText = "Jumlah",
-        TextColor3 = C.text,
-        PlaceholderColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 12,
-        ClearTextOnFocus = false,
-    }, dropCard)
-    Corner(amountBox, 8)
-    Stroke(amountBox, C.stroke, 1, 0.2)
-    local dropButton = MakeButton(dropCard, "Drop", "primary", {
-        Position = UDim2.new(0.5, 5, 0, 30),
-        Size = UDim2.new(0.5, -17, 0, 28),
-    })
-    dropButton.MouseButton1Click:Connect(function()
-        local amount = tonumber(amountBox.Text)
-        if amount and amount >= 1 and amount <= MAX_AMOUNT and amount == math.floor(amount) then
-            task.spawn(DropWorldLock, amount)
+    local function apply()
+        local pab = UI.GridMode == "pabrik"
+        ModeBtn.Text = pab and I18N.T("Pabrik") or "Farm"
+        ModeBtn.BackgroundColor3 = pab and Color3.fromRGB(200, 120, 40) or Color3.fromRGB(60, 60, 75)
+        Title.Text = I18N.T(pab and "Tile Break Pabrik" or "Grid Tile")
+        for key in pairs(CellButtons) do paintCell(key) end
+        if pab then
+            GridStart.Text = I18N.T(Pabrik.Running and "STOP PABRIK" or "START PABRIK")
+            GridStart.BackgroundColor3 = Pabrik.Running and Color3.fromRGB(200, 60, 60) or COLOR_ON
         else
-            Notify("Jumlah tidak valid (1-" .. MAX_AMOUNT .. ")")
+            local run = State.Running and not State.Override
+            GridStart.Text = run and "STOP" or "START"
+            GridStart.BackgroundColor3 = run and Color3.fromRGB(200, 60, 60) or COLOR_ON
+        end
+    end
+
+    UI.setGridMode = function(m)
+        UI.GridMode = m
+        apply()
+    end
+    ModeBtn.MouseButton1Click:Connect(function()
+        UI.setGridMode(UI.GridMode == "pabrik" and "farm" or "pabrik")
+    end)
+    apply()
+end)() end
+
+-- Panel bisa digeser lewat judul
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local dragging, dragStart, startPos
+    Title.Active = true
+    Title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = Panel.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
         end
     end)
-    local quickRow = New("Frame", {
-        Position = UDim2.fromOffset(12, 64),
-        Size = UDim2.new(1, -24, 0, 24),
-        BackgroundTransparency = 1,
-    }, dropCard)
-    New("UIListLayout", {
-        FillDirection = Enum.FillDirection.Horizontal,
-        Padding = UDim.new(0, 6),
-    }, quickRow)
-    for _, value in ipairs({ 1, 10, 50, 100 }) do
-        local chip = MakeButton(quickRow, tostring(value), "ghost", {
-            Size = UDim2.new(0.25, -5, 1, 0),
-            TextSize = 11,
+    table.insert(Connections, UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            local d = input.Position - dragStart
+            Panel.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end))
+end)() end
+
+task.spawn(function()
+    while alive() do
+        if GridGui.Enabled then
+            local px, py = getPlayerTile()
+            local t = px and ("ME (" .. px .. "," .. py .. ")") or I18N.T("Grid Tile | tidak di world")
+            if Title.Text ~= t then Title.Text = t end
+        end
+        task.wait(0.5)
+    end
+end)
+
+-- Tombol ▲/▼ untuk Fly (muncul saat Fly aktif)
+local FlyPad = newScreenGui("FianFlyPad")
+UI.FlyPad = FlyPad
+
+local function flyButton(text, yOffset, onHold)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(64, 64)
+    b.AnchorPoint = Vector2.new(1, 0.5)
+    b.Position = UDim2.new(1, -24, 0.5, yOffset)
+    b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    b.BackgroundTransparency = 0.2
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 28
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.AutoButtonColor = true
+    b.Parent = FlyPad
+    Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+    local st = Instance.new("UIStroke", b)
+    st.Color = Color3.fromRGB(90, 90, 120)
+    st.Thickness = 2
+    -- dilepas saat jari diangkat (walau sudah geser keluar), supaya tidak nyangkut
+    local heldInput = nil
+    b.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            heldInput = input
+            onHold(true)
+        end
+    end)
+    table.insert(Connections, UserInputService.InputEnded:Connect(function(input)
+        if heldInput and (input == heldInput
+            or (input.UserInputType == Enum.UserInputType.MouseButton1
+                and heldInput.UserInputType == Enum.UserInputType.MouseButton1)) then
+            heldInput = nil
+            onHold(false)
+        end
+    end))
+    return b
+end
+
+flyButton("▲", -40, function(v) Misc.UpHeld = v end)
+flyButton("▼", 40, function(v) Misc.DownHeld = v end)
+
+---------------------------------------------------------------------
+-- UI WINDUI
+---------------------------------------------------------------------
+-- Pilih bahasa saat execute (sebelum menu dibuat, karena teks menu dipasang sekali)
+do (function()
+    if not I18N.Ask and Config.saved("Bahasa", "Saved") then return end
+    local chosen, late = false, false
+    local function pick(lang)
+        if late then
+            I18N.Saved = lang
+            Config.save(true)
+            notify("Bahasa / Language", "Execute ulang untuk ganti bahasa / Re-execute to apply", 5)
+            return
+        end
+        I18N.Lang, I18N.Saved, chosen = lang, lang, true
+    end
+    local ok = pcall(function()
+        WindUI:Popup({
+            Title = "Fian792",
+            Icon = "languages",
+            Content = "Pilih bahasa menu\nChoose menu language",
+            Buttons = {
+                { Title = "Indonesia", Variant = I18N.Lang == "id" and "Primary" or "Secondary",
+                    Callback = function() pick("id") end },
+                { Title = "English", Variant = I18N.Lang == "en" and "Primary" or "Secondary",
+                    Callback = function() pick("en") end },
+            },
         })
-        chip.MouseButton1Click:Connect(function()
-            amountBox.Text = tostring(value)
-        end)
-    end
-
-    AddButton(page, "Rejoin World", "ghost", Rejoin)
-end
-
--- Halaman: Posisi ----------------------------------------------------
-local function AddPosCard(page, slot)
-    local card = AddCard(page, 100)
-    Label(card, {
-        Text = "Pos " .. slot,
-        Font = CARTOON_FONT,
-        TextSize = 14,
-        Position = UDim2.fromOffset(12, 8),
-        Size = UDim2.new(0.5, 0, 0, 18),
-        TextWrapped = false,
-    })
-    local info = Label(card, {
-        Text = "",
-        TextColor3 = C.mute,
-        TextSize = 11,
-        Position = UDim2.fromOffset(12, 28),
-        Size = UDim2.new(1, -24, 0, 16),
-        TextWrapped = false,
-    })
-
-    local function Refresh()
-        local pos = Config["pos" .. slot]
-        if type(pos) == "table" and type(pos.x) == "number" then
-            info.Text = string.format("Tile %d, %d  -  world %s", pos.x, pos.y, (pos.world and pos.world ~= "") and pos.world or "-")
-            info.TextColor3 = C.ok
-        else
-            info.Text = "Belum diset"
-            info.TextColor3 = C.mute
-        end
-    end
-    table.insert(hub.refreshers, Refresh)
-    Refresh()
-
-    local setButton = MakeButton(card, "Set di sini", "primary", {
-        Position = UDim2.new(0, 12, 1, -44),
-        Size = UDim2.new(0.5, -17, 0, 32),
-    })
-    local goButton = MakeButton(card, "Teleport (win" .. slot .. ")", "ghost", {
-        Position = UDim2.new(0.5, 5, 1, -44),
-        Size = UDim2.new(0.5, -17, 0, 32),
-    })
-    setButton.MouseButton1Click:Connect(function()
-        SetPos(slot)
-        RefreshHub()
     end)
-    goButton.MouseButton1Click:Connect(function()
-        task.spawn(GoToPos, slot)
+    if not ok then return end
+    local t0 = os.clock()
+    while not chosen and os.clock() - t0 < 30 and alive() do task.wait(0.1) end
+    late = not chosen -- tidak dipilih dalam 30 detik: pakai bahasa terakhir
+    if chosen then Config.save(true) end
+end)() end
+
+local Window = I18N.wrap(WindUI:CreateWindow({
+    Title = "Fian792",
+    Icon = "sprout",
+    Author = "v1.2 | Tester",
+    Folder = "Alfian792",
+    Size = UDim2.fromOffset(640, 380),
+    Theme = "Dark",
+    Transparent = true,
+    SideBarWidth = 150,
+}))
+pcall(function()
+    Window:EditOpenButton({ Title = "Fian792", Icon = "sprout", Draggable = true })
+end)
+
+-- Kalau 1 elemen error, tab lain tetap dibuat
+local function safe(fn)
+    local ok, err = pcall(fn)
+    if not ok then warn("[Fian792] UI error: " .. tostring(err)) end
+end
+
+-- Sidebar dikelompokkan: grup utama bisa dibuka / ditutup (isinya tab-tab)
+local Groups = {}
+for _, g in ipairs({
+    { key = "farm", title = "Farming", icon = "sprout", opened = true },
+    { key = "fitur", title = "Fitur", icon = "sparkles" },
+    { key = "aman", title = "Keamanan", icon = "shield" },
+    { key = "setel", title = "Setelan", icon = "settings" },
+}) do
+    local ok, sec = pcall(function()
+        return Window:Section({ Title = g.title, Icon = g.icon, Opened = g.opened == true })
+    end)
+    if ok and type(sec) == "table" and type(sec.Tab) == "function" then Groups[g.key] = sec end
+end
+
+local function makeTab(title, icon, group)
+    local parent = (group and Groups[group]) or Window
+    local ok, tab = pcall(function() return parent:Tab({ Title = title, Icon = icon }) end)
+    if ok and tab then return tab end
+    return Window:Tab({ Title = title })
+end
+
+-- Kotak di dalam tab yang bisa dibuka / ditutup (supaya tab tidak terlihat penuh).
+-- WindUI lama tanpa fitur ini: cuma judul, elemen tetap di tab.
+local function box(tab, title, opened)
+    local ok, sec = pcall(function()
+        return tab:Section({ Title = title, Box = true, BoxBorder = true, Opened = opened == true })
+    end)
+    if ok and type(sec) == "table" and type(sec.Toggle) == "function" then return sec end
+    pcall(function() tab:Section({ Title = title }) end)
+    return tab
+end
+local Box = {}
+
+-- Angka pakai Slider; kalau gagal, pakai kotak input
+local function addNumber(tab, o)
+    local ok = pcall(function()
+        tab:Slider({
+            Title = o.Title,
+            Desc = o.Desc,
+            Step = o.Step or 1,
+            Value = { Min = o.Min, Max = o.Max, Default = o.Default },
+            Callback = function(v)
+                v = tonumber(v)
+                if v then o.Callback(v) end
+            end,
+        })
+    end)
+    if ok then return end
+    safe(function()
+        tab:Input({
+            Title = o.Title,
+            Desc = (o.Desc and (o.Desc .. " ") or "") .. "(" .. o.Min .. "-" .. o.Max .. ")",
+            Value = tostring(o.Default),
+            Placeholder = tostring(o.Default),
+            Callback = function(text)
+                local v = tonumber(text)
+                if v then o.Callback(math.clamp(v, o.Min, o.Max)) end
+            end,
+        })
     end)
 end
 
-hub.builders.pos = function(page)
-    AddNote(page, "Berdiri di posisi pemain lalu tekan Set. Saat ada pemenang, tekan Teleport atau ketik command win.")
-    AddPosCard(page, 1)
-    AddPosCard(page, 2)
-    AddNote(page, string.format("Tips: %sw1 50 = teleport ke Pos 1 lalu langsung drop 50 World Lock.", Config.prefix))
-end
+-- ===== TAB: FARM =====
+local FarmTab = makeTab("Farm", "pickaxe", "farm")
 
--- Halaman: Visual Item ----------------------------------------------
-hub.builders.visual = function(page)
-    local list = GetWearables()
-    if not list then
-        AddNote(page, "ItemDB game tidak ditemukan.")
-        return
-    end
+safe(function()
+    UI.Status = FarmTab:Paragraph({ Title = "Status", Desc = "-" })
+end)
 
-    AddNote(page, "Hanya tampilan lokal. Klik item untuk memakai/melepas. Perubahan inventory game bisa mereset tampilan.")
+Box.FarmCtl = box(FarmTab, "Kontrol", true)
+Box.FarmBlock = box(FarmTab, "Block", true)
+Box.FarmSpeed = box(FarmTab, "Mode & Kecepatan", false)
 
-    local searchCard = AddCard(page, 42)
-    local search = New("TextBox", {
-        Position = UDim2.fromOffset(8, 6),
-        Size = UDim2.new(1, -16, 1, -12),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        Text = "",
-        PlaceholderText = "Cari nama item...",
-        TextColor3 = C.text,
-        PlaceholderColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 13,
-        ClearTextOnFocus = false,
-    }, searchCard)
-    Corner(search, 8)
-    New("UIPadding", { PaddingLeft = UDim.new(0, 10) }, search)
+safe(function()
+    UI.FarmToggle = Box.FarmCtl:Toggle({
+        Title = "Auto Farm",
+        Desc = "Bisa juga lewat tombol START di Grid",
+        Value = false,
+        Callback = function(on)
+            if on then startFarm() elseif State.Running then stopFarm() end
+        end,
+    })
+end)
 
-    local chipRow = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 28),
-        BackgroundTransparency = 1,
-        LayoutOrder = NextOrder(page),
-    }, page)
-    New("UIListLayout", {
-        FillDirection = Enum.FillDirection.Horizontal,
-        Padding = UDim.new(0, 5),
-    }, chipRow)
+safe(function()
+    Box.FarmCtl:Toggle({
+        Title = "Auto Collect",
+        Desc = "Ambil drop di tile yang dipilih",
+        Value = State.AutoCollect,
+        Callback = function(on) State.AutoCollect = on end,
+    })
+end)
 
-    local resetButton = AddButton(page, "Kembalikan Semua Item", "danger", function() end)
+safe(function()
+    Box.FarmCtl:Toggle({
+        Title = "Collect di sekitar karakter",
+        Desc = "Ambil semua drop dalam radius, kapan saja",
+        Value = State.CollectAround,
+        Callback = function(on) State.CollectAround = on end,
+    })
+end)
 
-    local results = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        LayoutOrder = NextOrder(page),
-    }, page)
-    New("UIListLayout", {
-        Padding = UDim.new(0, 4),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, results)
+addNumber(Box.FarmCtl, {
+    Title = "Radius collect (tile)",
+    Desc = "Dipakai juga Clear, Farmer, Splice & Pabrik. Terlalu jauh bisa ditolak server",
+    Min = 1, Max = 8, Step = 1, Default = State.CollectRadius,
+    Callback = function(v) State.CollectRadius = math.floor(v) end,
+})
 
-    local activeFilter = "Semua"
-    local limit = 60
-    local Rebuild
+safe(function()
+    Box.FarmCtl:Button({
+        Title = "Buka Grid Tile",
+        Desc = "Kotak 5x5, tengah = karakter",
+        Callback = function() GridGui.Enabled = true end,
+    })
+end)
 
-    local chips = {}
-    for _, name in ipairs({ "Semua", "Kuyang", "LegendBot", "Rayman" }) do
-        local chip = New("TextButton", {
-            Size = UDim2.new(0.25, -4, 1, 0),
-            BackgroundColor3 = C.cardHi,
-            BorderSizePixel = 0,
-            AutoButtonColor = false,
-            Text = name,
-            TextColor3 = C.text,
-            Font = CARTOON_FONT,
-            TextSize = 11,
-        }, chipRow)
-        Corner(chip, 8)
-        chips[name] = chip
-        chip.MouseButton1Click:Connect(function()
-            activeFilter = name
-            limit = 60
-            Rebuild()
-        end)
-    end
+-- ===== TAB: CLEAR WORLD =====
+local ClearTab = makeTab("Clear World", "eraser", "farm")
 
-    local function Matches(entry, query)
-        if activeFilter ~= "Semua" and not table.find(entry.tags, activeFilter) then
-            return false
-        end
-        return query == "" or entry.lower:find(query, 1, true) ~= nil
-    end
+safe(function()
+    UI.ClearStatus = ClearTab:Paragraph({ Title = "Status Clear", Desc = "-" })
+end)
 
-    Rebuild = function()
-        for _, child in ipairs(results:GetChildren()) do
-            if not child:IsA("UIListLayout") then
-                child:Destroy()
+Box.ClearCtl = box(ClearTab, "Kontrol", true)
+Box.ClearSet = box(ClearTab, "Pengaturan", false)
+
+safe(function()
+    UI.ClearToggle = Box.ClearCtl:Toggle({
+        Title = "Auto Clear World",
+        Desc = "Bersihkan dari baris atas ke bawah",
+        Value = false,
+        Callback = function(on)
+            if on then Auto.startClear() elseif Clear.Running then stopClear() end
+        end,
+    })
+end)
+
+safe(function()
+    Box.ClearSet:Dropdown({
+        Title = "Arah sapu",
+        Desc = "Zig-zag lebih cepat (tidak balik ke kiri)",
+        Values = { "Kiri → Kanan", "Zig-zag" },
+        Value = Clear.Sweep,
+        Callback = function(opt) Clear.Sweep = opt end,
+    })
+end)
+
+safe(function()
+    Box.ClearSet:Toggle({
+        Title = "Pakai block pijakan",
+        Desc = "Taruh block untuk lewat jurang / naik ke block melayang",
+        Value = Clear.UseBlock,
+        Callback = function(on)
+            Clear.UseBlock = on
+            Auto.resetReach()
+        end,
+    })
+end)
+
+safe(function()
+    UI.ClearBlockDropdown = Box.ClearSet:Dropdown({
+        Title = "Block pijakan",
+        Desc = "Block yang dipakai untuk pijakan",
+        Values = { "(memuat...)" },
+        Callback = function(opt)
+            local id = tonumber(string.match(opt or "", "%[(%d+)%]$"))
+            if id then
+                Clear.ScaffoldId = id
+                Auto.resetReach()
             end
-        end
-        for name, chip in pairs(chips) do
-            chip.BackgroundColor3 = (name == activeFilter) and C.accent or C.cardHi
-        end
+        end,
+    })
+end)
 
-        local query = Trim(search.Text):lower()
-        local shown, total = 0, 0
-        for _, entry in ipairs(list) do
-            if Matches(entry, query) then
-                total += 1
-                if shown < limit then
-                    shown += 1
-                    local worn = IsVisualWorn(entry.id)
-                    local row = New("TextButton", {
-                        Size = UDim2.new(1, 0, 0, 36),
-                        BackgroundColor3 = worn and C.accent or C.card,
-                        BackgroundTransparency = worn and 0.65 or 0,
-                        BorderSizePixel = 0,
-                        AutoButtonColor = false,
-                        Text = "",
-                        LayoutOrder = shown,
-                    }, results)
-                    Corner(row, 8)
-                    Stroke(row, worn and C.accent or C.stroke, 1, worn and 0.2 or 0.6)
+safe(function()
+    Box.ClearSet:Toggle({
+        Title = "Auto collect tiap habis pecah",
+        Desc = "Ambil drop di sekitar karakter",
+        Value = Clear.Collect,
+        Callback = function(on) Clear.Collect = on end,
+    })
+end)
 
-                    Label(row, {
-                        Text = entry.name,
-                        Font = CARTOON_FONT,
-                        TextSize = 12,
-                        Position = UDim2.fromOffset(10, 0),
-                        Size = UDim2.new(1, -112, 1, 0),
-                        TextWrapped = false,
-                        TextTruncate = Enum.TextTruncate.AtEnd,
-                    })
+safe(function()
+    Box.ClearCtl:Button({
+        Title = "Reset tile yang dilewati",
+        Desc = "Coba lagi tile yang tadi gagal",
+        Callback = function()
+            table.clear(Clear.Skip)
+            table.clear(Auto.BadEdge)
+            table.clear(Auto.ClearFail)
+            Auto.updateClearStatus()
+        end,
+    })
+end)
 
-                    local tagText = entry.slot
-                    if #entry.tags > 0 then
-                        tagText = tagText .. " - " .. table.concat(entry.tags, ",")
+-- ===== TAB: FARMER =====
+local FarmerTab = makeTab("Farmer", "leaf", "farm")
+
+safe(function()
+    UI.FarmerStatus = FarmerTab:Paragraph({ Title = "Status Farmer", Desc = "-" })
+end)
+
+Box.FarmerCtl = box(FarmerTab, "Kontrol", true)
+Box.FarmerSeed = box(FarmerTab, "Seed", true)
+Box.FarmerSpeed = box(FarmerTab, "Kecepatan", false)
+Box.FarmerBlock = box(FarmerTab, "Block pijakan", false)
+
+safe(function()
+    UI.FarmerToggle = Box.FarmerCtl:Toggle({
+        Title = "Jalankan Farmer",
+        Desc = "Panen pohon siap & tanam seed otomatis",
+        Value = false,
+        Callback = function(on)
+            if on then Auto.startFarmer() elseif Farmer.Running then stopFarmer() end
+        end,
+    })
+end)
+
+safe(function()
+    UI.SeedDropdown = Box.FarmerSeed:Dropdown({
+        Title = "Seed untuk ditanam",
+        Desc = "Hanya seed yang ada di inventori",
+        Values = { "(memuat...)" },
+        Callback = function(opt)
+            local id = tonumber(string.match(opt or "", "%[(%d+)%]$"))
+            if id then
+                Farmer.SeedId = id
+                table.clear(Farmer.Skip)
+                Auto.updateFarmerStatus()
+            end
+        end,
+    })
+end)
+
+safe(function()
+    Box.FarmerSeed:Button({
+        Title = "Refresh daftar seed",
+        Callback = function() refreshInvDropdown(true) end,
+    })
+end)
+
+safe(function()
+    Box.FarmerCtl:Toggle({
+        Title = "Auto Harvest",
+        Desc = "Hanya pohon yang sudah siap",
+        Value = Farmer.Harvest,
+        Callback = function(on) Farmer.Harvest = on end,
+    })
+end)
+
+safe(function()
+    Box.FarmerCtl:Toggle({
+        Title = "Auto Plant",
+        Desc = "Tanam di atas block yang kosong",
+        Value = Farmer.Plant,
+        Callback = function(on) Farmer.Plant = on end,
+    })
+end)
+
+safe(function()
+    Box.FarmerCtl:Toggle({
+        Title = "Auto Collect",
+        Desc = "Ambil hasil panen di sekitar karakter",
+        Value = Farmer.Collect,
+        Callback = function(on) Farmer.Collect = on end,
+    })
+end)
+
+addNumber(Box.FarmerSpeed, {
+    Title = "Speed Harvest (ms)",
+    Desc = "Jeda setelah tiap panen",
+    Min = 140, Max = 2000, Step = 10, Default = Farmer.HarvestMs,
+    Callback = function(v) Farmer.HarvestMs = math.floor(v) end,
+})
+
+addNumber(Box.FarmerSpeed, {
+    Title = "Speed Plant (ms)",
+    Desc = "Jeda setelah tiap tanam seed",
+    Min = 140, Max = 2000, Step = 10, Default = Farmer.PlantMs,
+    Callback = function(v) Farmer.PlantMs = math.floor(v) end,
+})
+
+safe(function()
+    Box.FarmerBlock:Toggle({
+        Title = "Pakai block pijakan",
+        Desc = "Taruh block kalau tidak ada jalan (block tetap tertinggal)",
+        Value = Farmer.UseBlock,
+        Callback = function(on)
+            Farmer.UseBlock = on
+            Auto.resetReach()
+        end,
+    })
+end)
+
+safe(function()
+    UI.FarmerBlockDropdown = Box.FarmerBlock:Dropdown({
+        Title = "Block pijakan",
+        Desc = "Block yang dipakai untuk pijakan",
+        Values = { "(memuat...)" },
+        Callback = function(opt)
+            local id = tonumber(string.match(opt or "", "%[(%d+)%]$"))
+            if id then
+                Farmer.ScaffoldId = id
+                Auto.resetReach()
+            end
+        end,
+    })
+end)
+
+-- ===== FARM: MODE & KECEPATAN =====
+local SpeedTab = Box.FarmSpeed -- digabung ke tab Farm
+
+safe(function()
+    SpeedTab:Dropdown({
+        Title = "Mode",
+        Desc = "Place semua tile dulu, lalu break",
+        Values = { "Place + Break", "Break saja", "Place saja" },
+        Value = State.Mode,
+        Callback = function(opt) State.Mode = opt end,
+    })
+end)
+
+addNumber(SpeedTab, {
+    Title = "Speed Place (ms)",
+    Desc = "Jeda setelah tiap place",
+    Min = 140, Max = 1000, Step = 10, Default = State.PlaceMs,
+    Callback = function(v) State.PlaceMs = math.floor(v) end,
+})
+
+addNumber(SpeedTab, {
+    Title = "Speed Break (ms)",
+    Desc = "Jeda tiap pukulan (normal 220). Dipakai juga Clear",
+    Min = 200, Max = 1000, Step = 10, Default = State.BreakMs,
+    Callback = function(v) State.BreakMs = math.floor(v) end,
+})
+
+addNumber(SpeedTab, {
+    Title = "Multi target break",
+    Desc = "Auto Farm: tile dipukul bergantian (seperti 2 jari). Pakai Rayman's Fist = 2-3 tile segaris sekali pukul",
+    Min = 1, Max = 5, Step = 1, Default = State.MultiTarget,
+    Callback = function(v) State.MultiTarget = math.clamp(math.floor(v), 1, 5) end,
+})
+
+addNumber(SpeedTab, {
+    Title = "Jeda setelah hancur (ms)",
+    Desc = "Tunggu sebelum lanjut ke tile berikutnya",
+    Min = 0, Max = 1500, Step = 50, Default = State.AfterBreakMs,
+    Callback = function(v) State.AfterBreakMs = math.floor(v) end,
+})
+
+-- ===== TAB: PENGATURAN (Opsi + Misc digabung) =====
+local SetTab = makeTab("Pengaturan", "sliders-horizontal", "setel")
+Box.SetChar = box(SetTab, "Karakter", true)
+Box.SetOpt = box(SetTab, "Opsi", true)
+local OptTab = Box.SetOpt
+
+safe(function()
+    OptTab:Toggle({
+        Title = "Mode Lite",
+        Desc = "Matikan particle & suara (HP low-end)",
+        Value = State.LiteMode,
+        Callback = function(on) setLite(on) end,
+    })
+end)
+
+safe(function()
+    OptTab:Toggle({
+        Title = "Mute suara pukulan",
+        Value = State.MutePunch,
+        Callback = function(on) State.MutePunch = on end,
+    })
+end)
+
+safe(function()
+    OptTab:Toggle({
+        Title = "Anti AFK",
+        Value = State.AntiAfk,
+        Callback = function(on) State.AntiAfk = on end,
+    })
+end)
+
+addNumber(OptTab, {
+    Title = "Pukulan per block (cadangan)",
+    Desc = "Dipakai kalau 'Pukul: TIDAK'. 0 = otomatis",
+    Min = 0, Max = 20, Step = 1, Default = State.HitsOverride,
+    Callback = function(v) State.HitsOverride = math.floor(v) end,
+})
+
+-- ===== FARM: PILIH BLOCK =====
+local InvTab = Box.FarmBlock -- digabung ke tab Farm
+
+safe(function()
+    UI.InvDropdown = InvTab:Dropdown({
+        Title = "Pilih Block",
+        Desc = "Hanya item yang bisa di-place",
+        Values = { "(memuat...)" },
+        Callback = function(opt)
+            local id = tonumber(string.match(opt or "", "%[(%d+)%]$"))
+            if id then
+                State.SelectedId = id
+                updateStatus()
+            end
+        end,
+    })
+end)
+
+safe(function()
+    InvTab:Button({
+        Title = "Refresh daftar",
+        Callback = function() refreshInvDropdown(true) end,
+    })
+end)
+
+-- ===== PENGATURAN: KARAKTER =====
+local MiscTab = Box.SetChar
+
+addNumber(MiscTab, {
+    Title = "Walkspeed (%)",
+    Desc = "100 = normal",
+    Min = 50, Max = 500, Step = 10, Default = Misc.Speed,
+    Callback = function(v) setSpeed(v) end,
+})
+
+safe(function()
+    MiscTab:Toggle({
+        Title = "Infinite Jump",
+        Desc = "Lompat di udara (bisa kena rollback)",
+        Value = false,
+        Callback = function(on) setInfJump(on) end,
+    })
+end)
+
+safe(function()
+    UI.GhostToggle = MiscTab:Toggle({
+        Title = "Fly + Tembus Block",
+        Desc = "Tembus block, pakai tombol ▲/▼ (bisa kena rollback)",
+        Value = false,
+        Callback = function(on) setGhost(on) end,
+    })
+end)
+
+-- ===== TAB: AUTO CHAT =====
+local ChatTab = makeTab("Auto Chat", "message-circle", "fitur")
+
+safe(function()
+    UI.SpamStatus = ChatTab:Paragraph({ Title = "Status Chat", Desc = "-" })
+end)
+
+Box.ChatCtl = box(ChatTab, "Kontrol", true)
+Box.ChatMsg = box(ChatTab, "Pesan", true)
+
+safe(function()
+    Box.ChatMsg:Input({
+        Title = "Daftar pesan",
+        Desc = "Pisahkan dengan |   contoh: halo|jual dirt",
+        Value = table.concat(Spam.Texts, "|"),
+        Placeholder = "pesan 1|pesan 2|pesan 3",
+        Callback = function(text)
+            Spam.Texts = parseSpamTexts(text)
+            Spam.Index = 1
+            updateSpamStatus()
+        end,
+    })
+end)
+
+addNumber(Box.ChatMsg, {
+    Title = "Interval (detik)",
+    Desc = "Jeda antar pesan (min 3 detik)",
+    Min = 3, Max = 120, Step = 1, Default = Spam.IntervalSec,
+    Callback = function(v) Spam.IntervalSec = math.max(3, math.floor(v)) end,
+})
+
+safe(function()
+    UI.SpamToggle = Box.ChatCtl:Toggle({
+        Title = "Auto Chat",
+        Desc = "Kirim pesan bergantian sesuai urutan",
+        Value = false,
+        Callback = function(on)
+            Spam.On = on
+            if on then
+                if #Spam.Texts == 0 then notify("Auto Chat", "Isi daftar pesan dulu (tekan Enter setelah mengetik)", 4) end
+                Spam.NextAt = 0 -- langsung kirim pesan pertama
+            end
+            updateSpamStatus()
+        end,
+    })
+end)
+
+safe(function()
+    Box.ChatCtl:Button({
+        Title = "Kirim 1 pesan sekarang",
+        Desc = "Tes kirim pesan berikutnya",
+        Callback = function()
+            task.spawn(function()
+                sendNextChat()
+                updateSpamStatus()
+            end)
+        end,
+    })
+end)
+
+-- ===== TAB: STAFF =====
+local function roleOptions()
+    local out, seen = { "none" }, { none = true }
+    if RolesOk and type(RolesModule) == "table" and type(RolesModule.titlesOf) == "function" then
+        local ok, list = pcall(RolesModule.titlesOf, LocalPlayer.UserId)
+        if ok and type(list) == "table" then
+            for _, code in ipairs(list) do
+                if type(code) == "string" and not seen[code] then
+                    seen[code] = true
+                    local label = code
+                    if type(RolesModule.titleName) == "function" then
+                        local okn, nm = pcall(RolesModule.titleName, code)
+                        if okn and type(nm) == "string" and nm ~= "" and nm ~= code then
+                            label = nm .. " [" .. code .. "]"
+                        end
                     end
-                    Label(row, {
-                        Text = tagText,
-                        TextColor3 = worn and C.text or C.mute,
-                        TextSize = 10,
-                        AnchorPoint = Vector2.new(1, 0.5),
-                        Position = UDim2.new(1, -10, 0.5, 0),
-                        Size = UDim2.fromOffset(100, 28),
-                        TextXAlignment = Enum.TextXAlignment.Right,
-                        TextTruncate = Enum.TextTruncate.AtEnd,
-                    })
-
-                    row.MouseEnter:Connect(function()
-                        if not worn then
-                            Tween(row, 0.1, { BackgroundColor3 = C.cardHi })
-                        end
-                    end)
-                    row.MouseLeave:Connect(function()
-                        if not worn then
-                            Tween(row, 0.1, { BackgroundColor3 = C.card })
-                        end
-                    end)
-                    row.MouseButton1Click:Connect(function()
-                        if ToggleVisual(entry.id) then
-                            Rebuild()
-                        end
-                    end)
+                    table.insert(out, label)
                 end
             end
         end
-
-        local footer = Label(results, {
-            Size = UDim2.new(1, 0, 0, 20),
-            Text = string.format("Menampilkan %d dari %d item", shown, total),
-            TextColor3 = C.mute,
-            TextSize = 11,
-            TextXAlignment = Enum.TextXAlignment.Center,
-            LayoutOrder = limit + 1,
-        })
-
-        if total > shown then
-            local more = MakeButton(results, "Muat lebih banyak", "ghost", {
-                Size = UDim2.new(1, 0, 0, 30),
-                LayoutOrder = limit + 2,
-            })
-            more.MouseButton1Click:Connect(function()
-                limit += 60
-                Rebuild()
-            end)
-        end
-        footer.Name = "Footer"
     end
-
-    resetButton.MouseButton1Click:Connect(function()
-        ResetVisuals()
-        Rebuild()
-    end)
-    search:GetPropertyChangedSignal("Text"):Connect(function()
-        limit = 60
-        Rebuild()
-    end)
-    Rebuild()
+    return out
 end
 
--- Halaman: Sesi ------------------------------------------------------
-hub.builders.session = function(page)
-    AddNote(page, "Sesi menyimpan fitur aktif, Pos 1/2 dan world terakhir ke file. Setelah ganti world atau rejoin, skrip jalan lagi dan fitur dipulihkan otomatis.")
+local function roleFromLabel(label)
+    return string.match(label or "", "%[(.-)%]$") or label
+end
 
-    local card = AddCard(page, 84)
-    local info = Label(card, {
-        Position = UDim2.fromOffset(12, 8),
-        Size = UDim2.new(1, -24, 1, -16),
-        TextSize = 11,
-        TextColor3 = C.mute,
-        TextYAlignment = Enum.TextYAlignment.Top,
-        Text = "",
+local function refreshRoles()
+    if UI.RoleDropdown then pcall(function() UI.RoleDropdown:Refresh(roleOptions()) end) end
+end
+
+local StaffTab = makeTab("Staff", "user-cog", "aman")
+
+safe(function()
+    StaffTab:Button({
+        Title = "Buka Staff Backpack",
+        Desc = "UI staff bawaan game (dikunci server)",
+        Callback = function()
+            if Refs.Menu and type(Refs.Menu.openBackpack) == "function" then
+                local target = { name = LocalPlayer.DisplayName or LocalPlayer.Name, userId = LocalPlayer.UserId }
+                local ok, err = pcall(Refs.Menu.openBackpack, target)
+                if not ok then notify("Staff", "Gagal buka: " .. tostring(err), 4) end
+            else
+                notify("Staff", "Menu game belum ketemu. Tekan 'Hubungkan ke game' dulu", 4)
+            end
+        end,
     })
-    local function Refresh()
-        local active = {}
-        for key, feature in pairs(Features) do
-            if Config.session[key] then
-                table.insert(active, feature.label)
-            end
-        end
-        table.sort(active)
-        info.Text = table.concat({
-            "World terakhir: " .. (Config.lastWorld ~= "" and Config.lastWorld or "-"),
-            "Fitur tersimpan: " .. (#active > 0 and table.concat(active, ", ") or "-"),
-            "Simpan file: " .. (writefile and "tersedia" or "TIDAK tersedia"),
-            "Auto-reload: " .. (ReloadReady() and "siap" or "belum siap (simpan skrip di workspace / isi URL)"),
-        }, "\n")
-    end
-    table.insert(hub.refreshers, Refresh)
-    Refresh()
+end)
 
-    AddSection(page, "Otomatis")
-    AddSwitchCard(page, "Pulihkan fitur", "Nyalakan lagi fitur yang aktif sebelumnya saat skrip dimuat.",
-        function() return Config.autoRestore end,
-        function(on) Config.autoRestore = on SaveConfig() end)
-    AddSwitchCard(page, "Auto-reload skrip", "Jalankan ulang skrip setelah pindah world / rejoin.",
-        function() return Config.autoReload end,
-        function(on)
-            Config.autoReload = on
-            SaveConfig()
-            if on then QueueReload() end
-            Refresh()
-        end)
-    AddSwitchCard(page, "Masuk world terakhir", "Setelah buka Roblox, warp otomatis ke world terakhir.",
-        function() return Config.autoWarp end,
-        function(on) Config.autoWarp = on SaveConfig() end)
-
-    AddSection(page, "Sumber skrip")
-    AddInputCard(page, "URL skrip (opsional)", "Dipakai auto-reload tanpa file", Config.scriptUrl, "https://...", function(text, box)
-        Config.scriptUrl = Trim(text)
-        box.Text = Config.scriptUrl
-        SaveConfig()
-        QueueReload()
-        Refresh()
-    end)
-
-    AddSection(page, "Aksi")
-    AddButton(page, "Simpan sesi sekarang", "primary", function()
-        SaveSessionNow()
-        Notify("Sesi disimpan.")
-        Refresh()
-    end)
-    AddButton(page, "Pasang auto-execute (autoexec)", "ghost", function()
-        InstallAutoexec()
-    end)
-    AddButton(page, "Reset sesi", "danger", function()
-        Config.session = {}
-        Config.lastWorld = ""
-        SaveConfig()
-        Notify("Sesi direset.")
-        Refresh()
-    end)
-end
-
--- Halaman: Setelan ---------------------------------------------------
-hub.builders.settings = function(page)
-    AddNote(page, "Prefix boleh apa saja atau dikosongkan. " .. "/settingsgb dan /sgb selalu bisa dibuka dengan \"/\" walau prefix diganti.")
-
-    AddSection(page, "Command")
-    AddInputCard(page, "Prefix", "Kosong = tanpa prefix", Config.prefix, "(kosong)", function(text, box)
-        Config.prefix = Trim(text)
-        box.Text = Config.prefix
-        SaveConfig()
-        Notify(Config.prefix == "" and "Prefix dikosongkan." or ("Prefix: " .. Config.prefix))
-        if hub.pages.help and hub.built and hub.built.help then
-            ClearPage(hub.pages.help)
-            hub.builders.help(hub.pages.help)
-        end
-    end)
-    AddInputCard(page, "ID item drop", "Dipakai oleh wld / wd", Config.dropId, "242", function(text, box)
-        local value = tonumber(text)
-        if value and value >= 1 and value == math.floor(value) then
-            Config.dropId = value
-            SaveConfig()
-            Notify("ID drop: " .. value)
-        else
-            Notify("ID tidak valid!")
-        end
-        box.Text = tostring(Config.dropId)
-    end)
-    AddInputCard(page, "Auto-drop saat win", "Jumlah WL otomatis (0 = mati)", Config.winDrop, "0", function(text, box)
-        local value = tonumber(text)
-        if value and value >= 0 and value <= MAX_AMOUNT and value == math.floor(value) then
-            Config.winDrop = value
-            SaveConfig()
-            Notify(value == 0 and "Auto-drop dimatikan." or ("Auto-drop win: " .. value))
-        else
-            Notify("Isi angka 0-" .. MAX_AMOUNT .. "!")
-        end
-        box.Text = tostring(Config.winDrop)
-    end)
-
-    AddSection(page, "Fitur")
-    AddInputCard(page, "Jangkauan longhand", "Tile tambahan (1-20)", Config.longhandRange, "3", function(text, box)
-        local value = tonumber(text)
-        if value and value >= 1 and value <= 20 then
-            Config.longhandRange = value
-            SaveConfig()
-            if longhandOn then
-                ApplyLonghand()
-            end
-            Notify("Longhand: +" .. value .. " tile")
-        else
-            Notify("Isi angka 1-20!")
-        end
-        box.Text = tostring(Config.longhandRange)
-    end)
-    AddInputCard(page, "Blink minimum", "Detik (0.05-10)", Config.blinkMin, "0.2", function(text, box)
-        local value = tonumber(text)
-        if value and value >= 0.05 and value <= 10 then
-            Config.blinkMin = value
-            SaveConfig()
-        else
-            Notify("Isi angka 0.05-10!")
-        end
-        box.Text = tostring(Config.blinkMin)
-    end)
-    AddInputCard(page, "Blink maksimum", "Detik (0.05-10)", Config.blinkMax, "0.5", function(text, box)
-        local value = tonumber(text)
-        if value and value >= 0.05 and value <= 10 then
-            Config.blinkMax = value
-            SaveConfig()
-        else
-            Notify("Isi angka 0.05-10!")
-        end
-        box.Text = tostring(Config.blinkMax)
-    end)
-
-    AddSection(page, "Lainnya")
-    AddSwitchCard(page, "Tombol melayang", "Tombol P untuk buka/tutup menu (bisa digeser).",
-        function() return Config.launcher end,
-        function(on)
-            Config.launcher = on
-            SaveConfig()
-            if hub.launcher then
-                hub.launcher.Visible = on
-            end
-        end)
-    AddButton(page, "Tutup Menu", "danger", function()
-        if hub.close then
-            hub.close()
-        end
-    end)
-end
-
--- Halaman: Bantuan (/hpx) --------------------------------------------
-local function HelpEntries()
-    local p = Config.prefix
-    return {
-        { p .. "wld <jumlah>  |  " .. p .. "wd", "Drop World Lock (ID item di Setelan)" },
-        { p .. "tp <world>  |  " .. p .. "warp", "Pindah ke world lain" },
-        { p .. "pos1  |  " .. p .. "pos2", "Simpan posisi sekarang sebagai Pos 1 / Pos 2" },
-        { p .. "win1  |  " .. p .. "w1  [jumlah]", "Teleport ke Pos 1, opsional langsung drop WL" },
-        { p .. "win2  |  " .. p .. "w2  [jumlah]", "Teleport ke Pos 2, opsional langsung drop WL" },
-        { p .. "pos", "Lihat posisi sekarang & pos tersimpan" },
-        { p .. "rejoin  |  " .. p .. "rj", "Masuk ulang ke world ini" },
-        { p .. "noclip  [on/off]", "Tembus blok & terbang (mode ghost game)" },
-        { p .. "unlimitedjump  |  " .. p .. "uj", "Lompat di udara tanpa batas" },
-        { p .. "blink  [on/off]", "Warna skin berganti otomatis" },
-        { p .. "longhand [n]  |  " .. p .. "lh", "Jangkauan punch & build lebih jauh" },
-        { p .. "visualitem  |  " .. p .. "vi", "GUI item visual (Kuyang, LegendBot, Rayman...)" },
-        { p .. "settingsgb  |  " .. p .. "sgb", "Buka/tutup menu ini (tab Setelan)" },
-        { p .. "afk", "Anti-AFK (tidak kena kick idle)" },
-        { p .. "autorejoin  |  " .. p .. "arj", "Rejoin otomatis kalau terputus" },
-        { p .. "session  |  " .. p .. "sesi", "Buka tab Sesi (simpan & pulihkan otomatis)" },
-        { p .. "af  |  " .. p .. "autofarm  [on/off]", "Buka GUI Auto Farm (on/off untuk langsung jalan/berhenti)" },
-        { p .. "ctp  |  " .. p .. "clicktp  [on/off]", "Click TP: klik tujuan, karakter menyusuri path (terlihat seperti teleport)" },
-        { p .. "ac  |  " .. p .. "autoclear  [on/off]", "Auto Clear World: GrowScan, break 1-3 block per pukulan (bisa diatur), ambil drop (lock & bedrock aman)" },
-        { p .. "acmode  <walk/tp>", "Mode Auto Clear: jalan (ujung dulu, break bawah/depan/belakang) atau teleport" },
-        { p .. "acpunch  <1-3>", "Jumlah block yang dipukul sekaligus oleh Auto Clear / Dirt Farm" },
-        { p .. "df  |  " .. p .. "dirtfarm  [on/off]", "Auto Dirt Farm: dig turun 2x + sapu baris (background ikut), respawn, lalu place dirt dari bawah ke atas" },
-        { p .. "dirtid  <id/nama>", "Atur block dirt yang di-place Auto Dirt Farm (default otomatis cari Dirt)" },
-        { p .. "move  |  " .. p .. "mv  <walk/tp/fly/mix>", "Mode gerak: jalan asli, teleport 3-5 block, terbang, atau campur" },
-        { p .. "spam  [on/off]", "Kirim teks spam ke chat berulang (teks diatur lewat setspam / tab Spam)" },
-        { p .. "setspam  <teks>", "Atur teks spam, contoh: " .. p .. "setspam Halo semua!" },
-        { p .. "hiddenname  |  " .. p .. "hn  <off/self/all>", "Sembunyikan nama jadi [HIDDEN] (tampilan lokal, tidak memengaruhi layar orang lain)" },
-        { p .. "breakid  <id,id,...>", "Scan world, cari block ID itu, lalu pecahkan (hormati lock & area orang lain)" },
-        { p .. "aq  |  " .. p .. "autoquest  [on/off/scan]", "Auto quest; scan = lihat hasil baca quest" },
-        { p .. "gs  |  " .. p .. "growscan", "Buka GrowScan" },
-        { p .. "god  [on/off]", "God mode: kebal lava, spike, api" },
-        { p .. "blockid <nama>  |  " .. p .. "bid", "Cari ID block dari nama" },
-        { p .. "hpx", "Buka/tutup daftar fitur" },
-    }
-end
-
-hub.builders.help = function(page)
-    AddNote(page, "Semua fitur Peex HUB. Fitur on/off: ketik tanpa argumen untuk toggle.")
-    for _, entry in ipairs(HelpEntries()) do
-        local card = AddCard(page, 52)
-        Label(card, {
-            Text = entry[1],
-            Font = Enum.Font.Code,
-            TextColor3 = C.accent2,
-            TextSize = 12,
-            Position = UDim2.fromOffset(12, 7),
-            Size = UDim2.new(1, -24, 0, 16),
-            TextWrapped = false,
-        })
-        Label(card, {
-            Text = entry[2],
-            TextColor3 = C.mute,
-            TextSize = 11,
-            Position = UDim2.fromOffset(12, 25),
-            Size = UDim2.new(1, -24, 0, 24),
-            TextYAlignment = Enum.TextYAlignment.Top,
-        })
-    end
-end
-
--- Komponen: kotak pencarian item (database ItemDB) ------------------
-local function CopyId(id)
-    if setclipboard then
-        pcall(setclipboard, tostring(id))
-    end
-end
-
-local function AddItemSearch(page, onPick, placeholder)
-    local card = AddCard(page, 38)
-    local box = New("TextBox", {
-        Position = UDim2.fromOffset(10, 5),
-        Size = UDim2.new(1, -20, 0, 28),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        Text = "",
-        PlaceholderText = placeholder or "Cari nama block atau ID...",
-        TextColor3 = C.text,
-        PlaceholderColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 12,
-        ClearTextOnFocus = false,
-    }, card)
-    Corner(box, 8)
-    Stroke(box, C.stroke, 1, 0.2)
-
-    local results = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        LayoutOrder = NextOrder(page),
-    }, page)
-    New("UIListLayout", {
-        Padding = UDim.new(0, 4),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, results)
-
-    local function Populate()
-        for _, child in ipairs(results:GetChildren()) do
-            if child:IsA("TextButton") or child:IsA("TextLabel") then
-                child:Destroy()
-            end
-        end
-        if Trim(box.Text) == "" then
-            return
-        end
-        local found = SearchItems(box.Text, 25)
-        if #found == 0 then
-            Label(results, {
-                Size = UDim2.new(1, 0, 0, 20),
-                Text = "Tidak ada hasil.",
-                TextColor3 = C.mute,
-                TextSize = 11,
-            })
-            return
-        end
-        for index, entry in ipairs(found) do
-            local row = MakeButton(results, string.format("%s   [ID %d]", entry.name, entry.id), "ghost", {
-                Size = UDim2.new(1, 0, 0, 28),
-                TextSize = 11,
-                TextXAlignment = Enum.TextXAlignment.Left,
-                LayoutOrder = index,
-            })
-            New("UIPadding", { PaddingLeft = UDim.new(0, 10) }, row)
-            row.MouseButton1Click:Connect(function()
-                CopyId(entry.id)
-                onPick(entry)
-            end)
-        end
-    end
-
-    local pending = 0
-    box:GetPropertyChangedSignal("Text"):Connect(function()
-        pending += 1
-        local mine = pending
-        task.delay(0.25, function()
-            if mine == pending then
-                Populate()
-            end
-        end)
-    end)
-    return box
-end
-
--- Halaman: Auto Farm -------------------------------------------------
-local function GridCount()
-    local n = 0
-    for _, on in pairs(Config.farmGrid) do
-        if on then
-            n += 1
-        end
-    end
-    return n
-end
-
-hub.builders.farm = function(page)
-    local status = AddCard(page, 78)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 6),
-        Size = UDim2.new(1, -24, 1, -12),
-        Text = "...",
-        TextSize = 12,
-        Font = CARTOON_FONT,
-        TextYAlignment = Enum.TextYAlignment.Top,
+safe(function()
+    UI.RoleDropdown = StaffTab:Dropdown({
+        Title = "Role / Title",
+        Desc = "Title yang kamu punya",
+        Values = { "none" },
+        Callback = function(opt) State.Role = roleFromLabel(opt) end,
     })
-    local function UpdateStatus()
-        local id = Config.farmPlaceId
-        local blockText = (type(id) == "number" and id > 0) and (ItemName(id) .. " (ID " .. id .. ")") or "belum dipilih"
-        statusLabel.Text = string.format(
-            "Status: %s\nBlock: %s\nKotak target: %d  |  jeda %.2f dtk\nPlace %d  Break %d  Ambil %d  Siklus %d",
-            farmStats.status, blockText, GridCount(), Config.farmDelay,
-            farmStats.placed, farmStats.broken, farmStats.picked, farmStats.cycles)
-    end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.4)
-            pcall(UpdateStatus)
-        end
-    end)
+end)
 
-    AddSwitchCard(page, "Auto Farm", "Place, pukul, lalu ambil item. Berdiri di posisi farm sebelum menyalakan.",
-        Features.autofarm.get, function(on) SetFeature("autofarm", on) end)
+safe(function()
+    StaffTab:Button({
+        Title = "Refresh daftar role",
+        Callback = refreshRoles,
+    })
+end)
 
-    AddSection(page, "Pengaturan")
-
-    local idBox
-    AddInputCard(page, "Kecepatan pukulan", "Jeda antar pukulan (detik). Normal game 0.22, minimum 0.03.",
-        Config.farmDelay, "0.22", function(text, box)
-            local value = tonumber(text)
-            if value and value >= 0.03 and value <= 5 then
-                Config.farmDelay = value
-                SaveConfig()
-            else
-                box.Text = tostring(Config.farmDelay)
-                Notify("Isi angka 0.03 sampai 5.")
-            end
-        end)
-
-    idBox = AddInputCard(page, "ID block", "Block yang di-place. Cari nama di bawah supaya ID terisi.",
-        Config.farmPlaceId, "ID", function(text, box)
-            local value = tonumber(text)
-            if value and value > 0 and ItemName(value) ~= "?" then
-                Config.farmPlaceId = value
-                SaveConfig()
-                Notify("Block: " .. ItemName(value) .. " (ID " .. value .. ")")
-            else
-                box.Text = tostring(Config.farmPlaceId)
-                Notify("ID tidak ada di database item.")
-            end
-        end)
-
-    AddSection(page, "Pola place (grid 5x5)")
-    AddNote(page, "Kotak tengah (KAMU) = posisi player. Tap kotak sampai HIJAU: block akan di-place di kotak itu. Merah = dilewati.")
-    local gridCard = AddCard(page, 5 * 34 + 12)
-    local gridFrame = New("Frame", {
-        Position = UDim2.fromOffset(8, 6),
-        Size = UDim2.new(1, -16, 1, -12),
-        BackgroundTransparency = 1,
-    }, gridCard)
-    New("UIGridLayout", {
-        CellSize = UDim2.new(0.2, -4, 0, 30),
-        CellPadding = UDim2.fromOffset(4, 4),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, gridFrame)
-    local gridButtons = {}
-    local function PaintCell(key)
-        local cell = gridButtons[key]
-        if cell then
-            cell.BackgroundColor3 = Config.farmGrid[key] and C.ok or C.bad
-        end
-    end
-    for dy = -2, 2 do
-        for dx = -2, 2 do
-            local key = dx .. "," .. dy
-            local cell = New("TextButton", {
-                BorderSizePixel = 0,
-                AutoButtonColor = false,
-                Text = (dx == 0 and dy == 0) and "KAMU" or "",
-                TextColor3 = C.text,
-                Font = CARTOON_FONT,
-                TextSize = (dx == 0 and dy == 0) and 10 or 13,
-                LayoutOrder = (dy + 2) * 5 + (dx + 2),
-            }, gridFrame)
-            Corner(cell, 6)
-            if dx == 0 and dy == 0 then
-                cell.BackgroundColor3 = C.accent2
-            else
-                gridButtons[key] = cell
-                PaintCell(key)
-                cell.MouseButton1Click:Connect(function()
-                    Config.farmGrid[key] = (not Config.farmGrid[key]) or nil
-                    SaveConfig()
-                    PaintCell(key)
+safe(function()
+    StaffTab:Button({
+        Title = "Pakai Role",
+        Desc = "Sama seperti menu Title game",
+        Callback = function()
+            local role = (State.Role ~= "" and State.Role) or "none"
+            if NetOk and type(Net) == "table" and type(Net.call) == "function" then
+                -- sama seperti menu Title game
+                task.spawn(function()
+                    local ok, err = pcall(Net.call, "PickTitle", role)
+                    notify("Staff", ok and ("Role dikirim: " .. role) or ("Gagal: " .. tostring(err)), 4)
                 end)
+            else
+                local pt = WorldRemotes:FindFirstChild("PickTitle")
+                if pt then
+                    pcall(function() pt:FireServer(role) end)
+                    notify("Staff", "Role dikirim: " .. role)
+                else
+                    notify("Staff", "Fungsi PickTitle tidak ada")
+                end
             end
-        end
-    end
-    AddButton(page, "Kosongkan semua kotak", "ghost", function()
-        Config.farmGrid = {}
-        SaveConfig()
-        for key in pairs(gridButtons) do
-            PaintCell(key)
-        end
-    end)
-
-    AddSwitchCard(page, "Ambil item otomatis", "Setelah break, teleport ke item yang jatuh lalu kembali ke posisi farm.",
-        function() return Config.farmTake end,
-        function(on)
-            Config.farmTake = on
-            SaveConfig()
-        end)
-
-    AddSection(page, "Database item")
-    AddNote(page, "Ketik nama block atau ID, lalu tap hasilnya untuk dipakai di Auto Farm (ID juga disalin kalau executor mendukung).")
-    AddItemSearch(page, function(entry)
-        Config.farmPlaceId = entry.id
-        SaveConfig()
-        if idBox then
-            idBox.Text = tostring(entry.id)
-        end
-        Notify("Block: " .. entry.name .. " (ID " .. entry.id .. ")")
-    end)
-end
-
--- Halaman: Auto Clear World ------------------------------------------
-hub.builders.clear = function(page)
-    local status = AddCard(page, 84)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 6),
-        Size = UDim2.new(1, -24, 1, -12),
-        Text = "...",
-        TextSize = 12,
-        TextYAlignment = Enum.TextYAlignment.Top,
+        end,
     })
-    local function UpdateStatus()
-        local st = Clear.stats
-        statusLabel.Text = string.format(
-            "Status: %s  (pass %d)  |  Mode %s\nTarget %d  |  Sisa %d  |  Dilewati %d\nPecah %d  Ambil %d\nDelay break %.2f dtk  |  delay teleport %.2f dtk",
-            Clear.status, st.pass, Config.clearMode == "teleport" and "Teleport" or "Jalan", st.scanned, st.left, st.skipped, st.broken, st.picked,
-            Config.clearBreakDelay, Config.clearTpDelay)
+end)
+
+---------------------------------------------------------------------
+-- PENJAGA: deteksi Mod / Dev / pemain yang masuk world
+---------------------------------------------------------------------
+-- Cara kerja:
+--   1. Tiap 0.5 detik baca daftar pemain di world (data game "Others").
+--   2. Role dicek pakai modul Roles game (Developer / Moderator, undercover juga ketahuan).
+--   3. Ada yang dicari -> semua aktivitas dihentikan, bisa juga langsung keluar world.
+--   4. Setelah aman -> aktivitas sebelumnya dilanjutkan.
+--      Mode keluar: tunggu X detik, masuk world lagi, cek lagi.
+--      Masih ada orangnya -> keluar lagi. Sudah aman -> lanjut (Auto Farm jalan balik ke posisi awal).
+
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local function strip(s) return (tostring(s or ""):gsub("`.", "")) end
+
+    local function roleOf(uid)
+        if not (RolesOk and type(RolesModule) == "table") then return nil end
+        local okD, dev = pcall(RolesModule.isDeveloper, uid)
+        if okD and dev then return "Developer" end
+        local okM, mod = pcall(RolesModule.isModerator, uid)
+        if okM and mod then return "Moderator" end
+        return nil
     end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.4)
-            pcall(UpdateStatus)
+
+    local function worldName()
+        local n = Refs.World and rawget(Refs.World, "name")
+        return type(n) == "string" and n or ""
+    end
+
+    -- Pemain lain di world ini: { id, name, role }
+    local function playersHere()
+        local out = {}
+        local o = Refs.Others
+        if not o or type(rawget(o, "list")) ~= "function" then return out end
+        local ok, list = pcall(o.list)
+        if not ok or type(list) ~= "table" then return out end
+        for _, e in ipairs(list) do
+            local uid = type(e) == "table" and tonumber(e[1] or e.userId)
+            if uid and uid ~= LocalPlayer.UserId then
+                out[#out + 1] = { id = uid, name = strip(e[2] or e.name or uid), role = roleOf(uid) }
+            end
         end
-    end)
-
-    AddSwitchCard(page, "Auto Clear World", "GrowScan dulu, lalu pecah semua block (kecuali lock & bedrock).",
-        Features.autoclear.get, function(on) SetFeature("autoclear", on) end)
-
-    AddSection(page, "Mode clear")
-    local clearModeCard = AddCard(page, 34)
-    local clearModeLabel = Label(clearModeCard, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local CLEAR_MODE_NAMES = { walk = "Jalan", teleport = "Teleport" }
-    local function UpdateClearMode()
-        clearModeLabel.Text = "Mode aktif: " .. (CLEAR_MODE_NAMES[Config.clearMode] or "Jalan")
+        return out
     end
-    UpdateClearMode()
-    local function SetClearMode(mode)
-        Config.clearMode = mode
-        SaveConfig()
-        UpdateClearMode()
-        Notify("Mode clear: " .. CLEAR_MODE_NAMES[mode] .. (Clear.on and " (berlaku saat Auto Clear dinyalakan lagi)" or ""))
-    end
-    AddButton(page, "Jalan  (turun 1x, sapu baris sampai ujung)", "primary", function() SetClearMode("walk") end)
-    AddButton(page, "Teleport  (pindah ke grup block)", "primary", function() SetClearMode("teleport") end)
-    AddNote(page, "Jalan: berjalan asli (analog) sampai ujung, lalu break ke bawah 1x, sapu baris ke depan sampai ujung "
-        .. "(3 block di depan dipukul sekaligus), turun 1x lagi, sapu arah sebaliknya, ulangi. "
-        .. "Background cave ikut dipecah. Teleport: pindah bertahap 3-5 tile ke dekat grup block lalu pukul beberapa tile sekaligus.")
+    Guard.playersHere = playersHere
 
-    AddSection(page, "Pengaturan")
-    AddInputCard(page, "Block per pukulan (punch)", "Berapa block dipukul sekaligus tiap putaran (1 sampai 3). Berlaku untuk mode jalan & teleport. Default 3.",
-        Config.clearPunch, "3", function(text, box)
-            local value = tonumber(text)
-            if value and value >= 1 and value <= 3 then
-                Config.clearPunch = math.floor(value)
-                SaveConfig()
-                Notify("Punch Auto Clear: " .. Config.clearPunch .. " block")
-            else
-                box.Text = tostring(Config.clearPunch)
-                Notify("Isi angka 1 sampai 3.")
+    local function threatsOf(list)
+        local out = {}
+        for _, p in ipairs(list) do
+            if p.role or (Guard.Who == "Semua pemain" and not Guard.Allow[p.id]) then
+                out[#out + 1] = p
             end
-        end)
-    AddInputCard(page, "Delay break", "Jeda tiap putaran pukul (detik). Game memukul tiap 0.22 dtk.",
-        Config.clearBreakDelay, "0.22", function(text, box)
-            local value = tonumber(text)
-            if value and value >= 0.03 and value <= 5 then
-                Config.clearBreakDelay = value
-                SaveConfig()
-            else
-                box.Text = tostring(Config.clearBreakDelay)
-                Notify("Isi angka 0.03 sampai 5.")
+        end
+        return out
+    end
+
+    local function label(p)
+        local under = false
+        if p.role and type(RolesModule.isUndercover) == "function" then
+            local ok, u = pcall(RolesModule.isUndercover, p.id)
+            under = ok and u == true
+        end
+        return p.name .. " (" .. (p.role or "Pemain") .. (under and ", undercover" or "") .. ")"
+    end
+
+    local function names(list, max)
+        local t = {}
+        for i, p in ipairs(list) do
+            if i > (max or 4) then
+                t[#t + 1] = "+" .. (#list - i + 1) .. " lagi"
+                break
             end
-        end)
-    AddInputCard(page, "Delay teleport", "Jeda setelah pindah posisi / ambil drop (detik).",
-        Config.clearTpDelay, "0.25", function(text, box)
-            local value = tonumber(text)
-            if value and value >= 0.03 and value <= 5 then
-                Config.clearTpDelay = value
-                SaveConfig()
-            else
-                box.Text = tostring(Config.clearTpDelay)
-                Notify("Isi angka 0.03 sampai 5.")
+            t[#t + 1] = label(p)
+        end
+        return table.concat(t, ", ")
+    end
+
+    local function anyRunning()
+        return State.Running or Clear.Running or Farmer.Running or Splice.Running or Spam.On
+            or Pabrik.Running or Build.Running
+    end
+
+    -- Catat aktivitas yang sedang jalan (untuk dilanjutkan nanti)
+    local function snapshot()
+        local tx, ty = Auto.here()
+        return {
+            farm = State.Running and not State.Override, clear = Clear.Running, farmer = Farmer.Running,
+            spam = Spam.On, splice = Splice.Running, pabrik = Pabrik.Running, build = Build.Running,
+            world = worldName(), tx = tx, ty = ty,
+        }
+    end
+
+    local function stopAll()
+        Auto.stopWalk()
+        if Pabrik.Running then Pabrik.stop() end
+        if Build.Running then Build.stop() end
+        if State.Running then stopFarm() end
+        if Clear.Running then
+            stopClear()
+            Clear.Status = "Dijeda Penjaga"
+        end
+        if Farmer.Running then
+            stopFarmer()
+            Farmer.Status = "Dijeda Penjaga"
+        end
+        if Splice.Running and Splice.stop then Splice.stop() end
+        if Spam.On then
+            Spam.On = false
+            if UI.SpamToggle then pcall(function() UI.SpamToggle:Set(false) end) end
+        end
+        Auto.releaseInput()
+    end
+
+    -- Keluar world = sama seperti tombol "Exit World" game
+    local function leaveWorld()
+        local m = Refs.Menu
+        if m and type(rawget(m, "openPicker")) == "function" and pcall(m.openPicker) then
+            return true
+        end
+        local w = Refs.World
+        if w and type(rawget(w, "call")) == "function" then
+            return (pcall(w.call, "LeaveWorld"))
+        end
+        return false
+    end
+
+    -- Masuk world lewat menu game (sama seperti ketik nama world lalu Enter)
+    local function enterWorld(name)
+        local w = Refs.World
+        if not w or name == "" then return false, "nama world tidak diketahui" end
+        local oldFg = rawget(w, "fg")
+        local m = Refs.Menu
+        if m and type(rawget(m, "enter")) == "function" then
+            pcall(m.enter, name)
+        elseif type(rawget(w, "enter")) == "function" then
+            local ok, res, msg = pcall(w.enter, name)
+            if ok and not res then return false, strip(msg) end
+        else
+            return false, "fungsi masuk world tidak ketemu"
+        end
+        -- berhasil kalau data world sudah diganti yang baru
+        local t0 = os.clock()
+        while alive() and os.clock() - t0 < 8 do
+            if rawget(w, "fg") ~= oldFg then return true end
+            task.wait(0.25)
+        end
+        return false, "world penuh / dikunci / gagal"
+    end
+
+    local function stillBack(token)
+        return alive() and Guard.Token == token and Guard.Mode == "back"
+    end
+
+    -- Lanjutkan aktivitas yang tadi dihentikan
+    local function resumeAll(saved, token)
+        if not saved then return end
+        if saved.world ~= "" and worldName() ~= saved.world then
+            notify("Penjaga", "World sudah beda, aktivitas tidak dilanjutkan", 5)
+            return
+        end
+        if saved.spam and not Spam.On and stillBack(token) then
+            if UI.SpamToggle then pcall(function() UI.SpamToggle:Set(true) end) end
+            Spam.On = true
+        end
+        if saved.build then
+            if stillBack(token) then Build.start() end
+        elseif saved.pabrik then
+            if stillBack(token) then Pabrik.start() end
+        elseif saved.farm then
+            -- Auto Farm memakai tile di sekitar karakter, jadi harus balik ke posisi awal
+            local hx, hy = Auto.here()
+            if saved.tx and (hx ~= saved.tx or hy ~= saved.ty) then
+                Guard.BackText = ("Jalan balik ke posisi farm (%d,%d)"):format(saved.tx, saved.ty)
+                local ok = Auto.walkTo(saved.tx, saved.ty, 45)
+                if not ok and stillBack(token) then ok = Auto.walkTo(saved.tx, saved.ty, 30) end
+                if not ok then
+                    if stillBack(token) then
+                        notify("Penjaga", "Gagal balik ke posisi farm. Auto Farm tidak dilanjutkan", 6)
+                    end
+                    return
+                end
             end
-        end)
-    AddSwitchCard(page, "Ambil item otomatis", "Teleport ke item drop setelah break, sapu sisa di akhir.",
-        function() return Config.clearTake end,
-        function(on)
-            Config.clearTake = on
-            SaveConfig()
-        end)
-    AddButton(page, "GrowScan sekarang", "primary", function()
+            if stillBack(token) then startFarm() end
+        elseif saved.clear then
+            if stillBack(token) then Auto.startClear() end
+        elseif saved.farmer then
+            if stillBack(token) then Auto.startFarmer() end
+        elseif saved.splice then
+            if stillBack(token) and Splice.start then Splice.start() end
+        end
+    end
+
+    local function beginResume()
+        local saved = Guard.Saved
+        Guard.Token += 1
+        local token = Guard.Token
+        Guard.Mode = "back"
+        Guard.BackText = nil
         task.spawn(function()
-            local scan = ScanWorld()
-            if not scan then
-                Notify("World tidak terbaca.")
+            local ok, err = pcall(resumeAll, saved, token)
+            if not ok then warn("[Fian792] Penjaga lanjut error: " .. tostring(err)) end
+            if Guard.Token == token and Guard.Mode == "back" then
+                Guard.Mode, Guard.Saved, Guard.BackText = "idle", nil, nil
+            end
+        end)
+    end
+
+    local function goAway()
+        if not leaveWorld() then
+            notify("Penjaga", "Gagal keluar world, aktivitas hanya dijeda", 5)
+            Guard.Mode = "pause"
+            return
+        end
+        task.wait(0.3)
+        Guard.LeftFg = Refs.World and rawget(Refs.World, "fg")
+        Guard.BackAt = os.clock() + Guard.BackSec
+        Guard.Mode = Guard.AutoBack and "away" or "out"
+        Guard.Status = "Keluar world"
+    end
+
+    -- Ada orang baru yang dicari masuk world
+    local function trigger(fresh)
+        Guard.Detected += #fresh
+        notify("Penjaga", "Masuk world: " .. names(fresh), 6)
+        Hook.send("penjaga", "Masuk world " .. worldName() .. ": " .. names(fresh))
+        if not Guard.StopAll and not Guard.Leave then return end -- hanya peringatan
+        -- simpan aktivitas (kalau sedang jalan balik, pakai catatan lama)
+        if Guard.Mode ~= "back" and (anyRunning() or not Guard.Saved) then
+            Guard.Saved = snapshot()
+        end
+        Guard.Token += 1
+        stopAll()
+        Guard.CalmAt = nil
+        if Guard.Leave then
+            goAway()
+            if Guard.Mode == "away" then
+                notify("Penjaga", "Keluar world. Masuk lagi dalam " .. Guard.BackSec .. " detik", 5)
+                Hook.send("penjaga", "Keluar world, masuk lagi dalam " .. Guard.BackSec .. " detik")
+            elseif Guard.Mode == "out" then
+                notify("Penjaga", "Keluar world", 4)
+            end
+        else
+            Guard.Mode = "pause"
+        end
+    end
+
+    -- Setelah masuk world lagi: cek dulu, masih ada orangnya atau tidak
+    local function checkAfterEnter()
+        Auto.resetReach()
+        pcall(findDropRefs)
+        pcall(Auto.findTreeRefs)
+        table.clear(DropFailUntil)
+        task.wait(1.5) -- tunggu daftar pemain terisi
+        local th = threatsOf(playersHere())
+        if #th > 0 then
+            for _, p in ipairs(th) do Guard.Alerted[p.id] = true end
+            notify("Penjaga", "Masih ada " .. names(th) .. ". Keluar lagi", 5)
+            goAway()
+            return
+        end
+        notify("Penjaga", "World aman, lanjut aktivitas", 4)
+        Hook.send("penjaga", "World " .. worldName() .. " aman, lanjut aktivitas")
+        beginResume()
+    end
+
+    -- Staff yang online di server (bukan hanya di world ini)
+    local lastScan, staffText = -10, "-"
+    local function serverStaff()
+        if os.clock() - lastScan < 3 then return staffText end
+        lastScan = os.clock()
+        local t = {}
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                local r = roleOf(plr.UserId)
+                if r then t[#t + 1] = (plr.DisplayName or plr.Name) .. " (" .. r .. ")" end
+            end
+        end
+        staffText = (#t > 0) and table.concat(t, ", ") or "tidak ada"
+        return staffText
+    end
+
+    function Guard.tick(here)
+        if not Guard.On then
+            Guard.Status = "Mati"
+            return
+        end
+        local now = os.clock()
+        local mode = Guard.Mode
+
+        -- ===== sedang di luar world =====
+        if mode == "away" or mode == "out" then
+            local fgNow = Refs.World and rawget(Refs.World, "fg")
+            if Guard.LeftFg and fgNow ~= Guard.LeftFg then
+                -- sudah masuk world lagi secara manual
+                if mode == "away" and Guard.Saved and worldName() == Guard.Saved.world then
+                    checkAfterEnter()
+                else
+                    Guard.Mode, Guard.Saved = "idle", nil
+                end
                 return
             end
-            local fg, bg, drops = 0, 0, 0
-            for _, n in pairs(scan.fg) do fg += n end
-            for _, n in pairs(scan.bg) do bg += n end
-            for _, n in pairs(scan.drops) do drops += n end
-            Notify(string.format("GrowScan: %d fg, %d bg, %d item drop (world %dx%d)", fg, bg, drops, scan.w, scan.h))
-        end)
-    end)
-    AddNote(page, "Alur: scan isi world -> pecah per 1-3 block -> ambil drop -> ulang sampai bersih. "
-        .. "Block lock, area, bedrock, dan door utama tidak disentuh. Berdiri di world milikmu sebelum menyalakan.")
-end
-
--- Halaman: Auto Dirt Farm ---------------------------------------------
-hub.builders.dirt = function(page)
-    local status = AddCard(page, 78)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 6),
-        Size = UDim2.new(1, -24, 1, -12),
-        Text = "...",
-        TextSize = 12,
-        TextYAlignment = Enum.TextYAlignment.Top,
-    })
-    local function DirtLabel()
-        local id = DirtFarm.ResolveId and DirtFarm.ResolveId()
-        if id then
-            return ItemName(id) .. " (ID " .. id .. ")"
-        end
-        return "belum ketemu"
-    end
-    local dirtName = DirtLabel()
-    local function UpdateStatus()
-        local st = DirtFarm.stats
-        statusLabel.Text = string.format(
-            "Status: %s  |  Baris %d\nPecah %d  Ambil %d  Place %d  Dilewati %d\nPunch %d block  |  Dirt: %s",
-            DirtFarm.status, st.rows, st.broken, st.picked, st.placed, st.skipped,
-            math.clamp(math.floor(tonumber(Config.clearPunch) or 3), 1, 3), dirtName)
-    end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.4)
-            pcall(UpdateStatus)
-        end
-    end)
-
-    AddSwitchCard(page, "Auto Dirt Farm", "Dig turun 2x + sapu baris, respawn, lalu place dirt dari bawah ke atas.",
-        Features.dirtfarm.get, function(on) SetFeature("dirtfarm", on) end)
-
-    AddSection(page, "Pengaturan")
-    AddInputCard(page, "Block per pukulan (punch)", "Berapa block di depan dipukul sekaligus (1 sampai 3). Sama dengan Auto Clear.",
-        Config.clearPunch, "3", function(text, box)
-            local value = tonumber(text)
-            if value and value >= 1 and value <= 3 then
-                Config.clearPunch = math.floor(value)
-                SaveConfig()
-            else
-                box.Text = tostring(Config.clearPunch)
-                Notify("Isi angka 1 sampai 3.")
+            local name = Guard.Saved and Guard.Saved.world or ""
+            if mode == "out" or name == "" then
+                Guard.Status = "Sudah keluar world (lanjut otomatis mati)"
+                return
             end
-        end)
-    AddInputCard(page, "ID block dirt", "ID block yang di-place. 0 = otomatis cari item bernama Dirt.",
-        Config.dirtId, "0", function(text, box)
-            local value = tonumber(text)
-            if value and value >= 0 then
-                Config.dirtId = math.floor(value)
-                SaveConfig()
-                dirtName = DirtLabel()
-            else
-                box.Text = tostring(Config.dirtId)
-                Notify("Isi ID block (angka) atau 0 untuk otomatis.")
+            local left = Guard.BackAt - now
+            if left > 0 then
+                Guard.Status = ("Di luar world. Masuk lagi ke %s dalam %d detik"):format(name, math.ceil(left))
+                return
             end
-        end)
-    AddSwitchCard(page, "Place dirt setelah dig", "Respawn lalu place dirt dari baris paling bawah naik sampai atas.",
-        function() return Config.dirtPlace end,
-        function(on)
-            Config.dirtPlace = on
-            SaveConfig()
-        end)
-    AddSwitchCard(page, "Ambil item otomatis", "Ambil drop hasil break (dirt untuk fase place). Sama dengan Auto Clear.",
-        function() return Config.clearTake end,
-        function(on)
-            Config.clearTake = on
-            SaveConfig()
-        end)
-
-    AddSection(page, "Pilih block dirt dari database")
-    AddItemSearch(page, function(entry)
-        Config.dirtId = entry.id
-        SaveConfig()
-        dirtName = DirtLabel()
-        Notify("Block dirt: " .. entry.name .. " (ID " .. entry.id .. ")")
-    end)
-
-    AddNote(page, "Alur: 1) jalan ke ujung, break bawah 2x, sapu baris ke depan sampai ujung (background cave ikut hancur). "
-        .. "2) Di ujung: break atas dulu, lalu turun 2 block lagi dan sapu arah sebaliknya, ulangi sampai paling bawah. "
-        .. "3) Respawn. 4) Dari baris paling bawah, berdiri di lantai yang aman (kolom ujung yang sudah di-break dilewati supaya tidak jatuh), "
-        .. "place dirt di atas player sampai ujung, teleport naik ke baris yang baru di-place, ulangi sampai paling atas. "
-        .. "Siapkan dirt di inventory dan berdiri di baris paling atas world milikmu sebelum menyalakan.")
-end
-
--- Halaman: Auto Break by Block ID -------------------------------------
-hub.builders.breakid = function(page)
-    local status = AddCard(page, 56)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local function UpdateStatus()
-        local s = BreakId.stats
-        statusLabel.Text = string.format("%s\n%s   |   ditemukan %d, pecah %d, diambil %d, lewat %d",
-            BreakId.on and "AKTIF" or "Mati", BreakId.status, s.found, s.broken, s.picked, s.skipped)
-    end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.4)
-            pcall(UpdateStatus)
-        end
-    end)
-
-    AddSection(page, "ID block")
-    local card = AddCard(page, 78)
-    Label(card, {
-        Text = "ID block, pisah koma kalau lebih dari satu. Contoh: 4,112",
-        TextColor3 = C.mute,
-        TextSize = 10,
-        Position = UDim2.fromOffset(12, 6),
-        Size = UDim2.new(1, -24, 0, 14),
-        TextWrapped = false,
-    })
-    local box = New("TextBox", {
-        Position = UDim2.fromOffset(10, 26),
-        Size = UDim2.new(1, -20, 0, 42),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        Text = tostring(Config.breakIdText or ""),
-        PlaceholderText = "cth: 4, 112",
-        TextColor3 = C.text,
-        PlaceholderColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 13,
-        ClearTextOnFocus = false,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, card)
-    Corner(box, 8)
-    local boxStroke = Stroke(box, C.stroke, 1, 0.2)
-    box.Focused:Connect(function()
-        Tween(boxStroke, 0.12, { Color = C.accent })
-    end)
-    box.FocusLost:Connect(function()
-        Tween(boxStroke, 0.12, { Color = C.stroke })
-        Config.breakIdText = Trim(box.Text)
-        SaveConfig()
-    end)
-
-    AddButton(page, "Mulai Break ID", "primary", function()
-        SetFeature("breakid", false)
-        BreakId.Start(box.Text)
-        if RefreshHub then RefreshHub() end
-    end)
-    AddButton(page, "Berhenti", "danger", function()
-        SetFeature("breakid", false)
-    end)
-
-    AddNote(page, "Alur: scan seluruh world cari tile dengan ID itu -> pindah dekat tile -> pecahkan -> ambil drop (kalau opsi ambil item di tab Auto Clear nyala) -> ulang sampai habis. "
-        .. "Delay & jumlah block per pukulan memakai pengaturan di tab Auto Clear. "
-        .. "Block yang terkunci (lock/area milik orang lain) dilewati, bukan dipaksa dibuka.")
-end
-
--- Halaman: Hidden Name -------------------------------------------------
-hub.builders.hidden = function(page)
-    local status = AddCard(page, 40)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local MODE_NAMES = { off = "Mati", self = "Nama sendiri", all = "Semua pemain" }
-    local buttons = {}
-    local function UpdateStatus()
-        statusLabel.Text = "Hidden Name: " .. (MODE_NAMES[Config.hiddenNameMode] or "Mati")
-            .. (HiddenName.ready and "" or "   (tidak tersedia di executor ini)")
-        statusLabel.TextColor3 = (Config.hiddenNameMode ~= "off") and C.ok or C.text
-        for mode, button in pairs(buttons) do
-            local active = (Config.hiddenNameMode == mode)
-            button.Text = (active and "✓ " or "") .. MODE_NAMES[mode] .. (active and " (aktif)" or "")
-        end
-    end
-    table.insert(hub.refreshers, UpdateStatus)
-
-    AddSection(page, "Pilih target")
-    buttons.off = AddButton(page, "Mati", "ghost", function() HiddenName.SetMode("off") end)
-    buttons.self = AddButton(page, "Nama sendiri", "primary", function() HiddenName.SetMode("self") end)
-    buttons.all = AddButton(page, "Semua pemain", "primary", function() HiddenName.SetMode("all") end)
-    AddButton(page, "Gambar ulang nama sekarang", "ghost", function()
-        HiddenName.Redraw()
-        Notify("Nama digambar ulang.")
-    end)
-
-    AddNote(page, "Nama yang disembunyikan tampil jadi [HIDDEN] di NameTag & chat, HANYA di layar kamu sendiri. "
-        .. "Pemain lain tetap melihat nama asli di layar mereka masing-masing — ini bukan mengubah apa pun di server. "
-        .. "Command: " .. Config.prefix .. "hiddenname off | self | all")
-
-    UpdateStatus()
-end
-
--- Halaman: Spam Chat -------------------------------------------------
-hub.builders.spam = function(page)
-    local status = AddCard(page, 40)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local function UpdateStatus()
-        local text = Trim(Config.spamText or "")
-        statusLabel.Text = (Spam.on and "Spam: AKTIF" or "Spam: mati") .. "   |   Teks: "
-            .. (text ~= "" and text or "(kosong)")
-    end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.5)
-            pcall(UpdateStatus)
-        end
-    end)
-
-    AddSwitchCard(page, "Spam Chat", "Kirim teks di bawah ke chat berulang-ulang.",
-        Features.spam.get, function(on) SetFeature("spam", on) end)
-
-    AddSection(page, "Teks spam")
-    local card = AddCard(page, 78)
-    Label(card, {
-        Text = "Teks yang dikirim (maks 200 huruf, tidak boleh diawali /)",
-        TextColor3 = C.mute,
-        TextSize = 10,
-        Position = UDim2.fromOffset(12, 6),
-        Size = UDim2.new(1, -24, 0, 14),
-        TextWrapped = false,
-    })
-    local box = New("TextBox", {
-        Position = UDim2.fromOffset(10, 26),
-        Size = UDim2.new(1, -20, 0, 42),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        Text = tostring(Config.spamText or ""),
-        PlaceholderText = "Ketik teks spam di sini...",
-        TextColor3 = C.text,
-        PlaceholderColor3 = C.mute,
-        Font = CARTOON_FONT,
-        TextSize = 13,
-        ClearTextOnFocus = false,
-        TextWrapped = true,
-        MultiLine = false,
-        TextXAlignment = Enum.TextXAlignment.Left,
-    }, card)
-    Corner(box, 8)
-    local boxStroke = Stroke(box, C.stroke, 1, 0.2)
-    box.Focused:Connect(function()
-        Tween(boxStroke, 0.12, { Color = C.accent })
-    end)
-    box.FocusLost:Connect(function()
-        Tween(boxStroke, 0.12, { Color = C.stroke })
-        if not Spam.SetText(box.Text) then
-            box.Text = tostring(Config.spamText or "")
-        end
-    end)
-
-    AddInputCard(page, "Delay antar pesan", "Detik per pesan (minimal 1.5). Terlalu cepat bisa kena mute moderator.",
-        Config.spamDelay, "3", function(text, inputBox)
-            local value = tonumber(text)
-            if value and value >= 1.5 and value <= 120 then
-                Config.spamDelay = value
-                SaveConfig()
-            else
-                inputBox.Text = tostring(Config.spamDelay)
-                Notify("Isi angka 1.5 sampai 120.")
+            Guard.Status = "Masuk lagi ke " .. name .. "..."
+            Guard.updateStatus({})
+            local ok, err = enterWorld(name)
+            if not ok then
+                Guard.BackAt = os.clock() + math.max(15, Guard.BackSec)
+                notify("Penjaga", "Gagal masuk " .. name .. ": " .. tostring(err) .. ". Dicoba lagi nanti", 5)
+                return
             end
-        end)
-    AddButton(page, "Kirim sekali (tes)", "primary", function()
-        local text = Trim(Config.spamText or "")
-        if text == "" then
-            Notify("Teks spam masih kosong.")
+            checkAfterEnter()
             return
         end
-        Spam.guardText = text:lower()
-        Spam.guardT = os.clock()
-        if not Spam.Send(text) then
-            Notify("Gagal kirim: chat tidak ditemukan.")
+
+        -- ===== di dalam world =====
+        local present = {}
+        for _, p in ipairs(here) do present[p.id] = true end
+        for id in pairs(Guard.Alerted) do
+            if not present[id] then Guard.Alerted[id] = nil end -- sudah pergi
         end
-    end)
-    AddNote(page, "Command: /spam on|off untuk nyalakan/matikan, /setspam <teks> untuk mengganti teks. "
-        .. "Game punya sistem mute dari moderator, jadi pakai delay yang wajar.")
-end
-
--- Halaman: Click TP / Pathfinding ------------------------------------
-hub.builders.nav = function(page)
-    local status = AddCard(page, 40)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local function UpdateStatus()
-        statusLabel.Text = "Terakhir: " .. Nav.last
-    end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.4)
-            pcall(UpdateStatus)
-        end
-    end)
-
-    AddSwitchCard(page, "Click TP", "Klik mana saja, karakter menyusuri path ke sana.",
-        Features.clicktp.get, function(on) SetFeature("clicktp", on) end)
-    AddSection(page, "Pengaturan")
-    AddSwitchCard(page, "Wajib tahan Shift", "Click TP hanya jalan kalau Shift (kiri atau kanan) ditahan di PC, supaya tidak ikut mukul.",
-        function() return Config.clickTpShift end,
-        function(on)
-            Config.clickTpShift = on
-            SaveConfig()
-        end)
-    AddSection(page, "Mode gerak (Click TP, Auto Clear, Auto Farm)")
-    local modeCard = AddCard(page, 34)
-    local modeLabel = Label(modeCard, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        TextWrapped = false,
-    })
-    local MODE_NAMES = { walk = "Jalan", tp = "Teleport 3-5 block", fly = "Terbang", mix = "Campur" }
-    local function UpdateMode()
-        modeLabel.Text = "Mode aktif: " .. (MODE_NAMES[Config.moveMode] or "Campur")
-    end
-    UpdateMode()
-    local function SetMode(mode)
-        Config.moveMode = mode
-        SaveConfig()
-        UpdateMode()
-        Notify("Mode gerak: " .. MODE_NAMES[mode])
-    end
-    AddButton(page, "Jalan  (asli, pakai analog)", "primary", function() SetMode("walk") end)
-    AddButton(page, "Teleport  (bertahap 3-5 block)", "primary", function() SetMode("tp") end)
-    AddButton(page, "Terbang  (lurus, tembus block)", "primary", function() SetMode("fly") end)
-    AddButton(page, "Campur  (jalan dulu, buntu = terbang)", "primary", function() SetMode("mix") end)
-    AddInputCard(page, "Lompatan teleport (tile)", "Jarak tiap lompatan mode teleport/terbang. Isi 'min-max', contoh 3-5.",
-        tostring(Config.hopMin) .. "-" .. tostring(Config.hopMax), "3-5", function(text, box)
-            local lo, hi = tostring(text):match("^%s*(%d+)%s*[-,%s]%s*(%d+)%s*$")
-            lo, hi = tonumber(lo), tonumber(hi)
-            if lo and hi and lo >= 1 and hi >= lo and hi <= 10 then
-                Config.hopMin, Config.hopMax = lo, hi
-                SaveConfig()
-            else
-                box.Text = tostring(Config.hopMin) .. "-" .. tostring(Config.hopMax)
-                Notify("Isi seperti 3-5 (maksimal 10).")
-            end
-        end)
-    AddNote(page, "Jalan: karakter berjalan sungguhan lewat analog game (kecepatan normal, lompat otomatis). Kalau tidak ada rute, gagal. "
-        .. "Teleport: pindah bertahap 3-5 tile per lompatan lewat rute kosong, supaya tidak ditolak. "
-        .. "Terbang: garis lurus menembus block, juga bertahap 3-5 tile. "
-        .. "Campur: jalan dulu, kalau tidak ada rute otomatis terbang. "
-        .. "Klik juga bisa memukul block di titik itu; aktifkan 'Wajib tahan Shift' kalau mengganggu.")
-end
-
--- Halaman: Auto Quest ------------------------------------------------
-hub.builders.quest = function(page)
-    local status = AddCard(page, 40)
-    local statusLabel = Label(status, {
-        Position = UDim2.fromOffset(12, 0),
-        Size = UDim2.new(1, -24, 1, 0),
-        Text = "...",
-        TextSize = 12,
-        Font = CARTOON_FONT,
-        TextWrapped = false,
-    })
-    local function UpdateStatus()
-        statusLabel.Text = "Status: " .. questStatus
-    end
-    UpdateStatus()
-    local owner = hub.frame
-    task.spawn(function()
-        while hub.frame == owner and owner and owner.Parent do
-            task.wait(0.5)
-            pcall(UpdateStatus)
-        end
-    end)
-
-    AddSwitchCard(page, "Auto Quest", "Claim reward lalu kerjakan quest break/place lewat Auto Farm.",
-        Features.autoquest.get, function(on) SetFeature("autoquest", on) end)
-    AddButton(page, "Baca quest sekarang", "primary", function()
-        task.spawn(QuestReport)
-    end)
-    AddNote(page, "Syarat: block untuk quest harus ada di inventory. Quest yang tidak dikenali dilewati. "
-        .. "Kalau quest tidak terbaca, tekan tombol di atas dan lihat hasilnya.")
-end
-
--- Halaman: GrowScan --------------------------------------------------
-hub.builders.scan = function(page)
-    AddButton(page, "Buka GrowScan game", "primary", function()
-        if not OpenNativeGrowScan() then
-            Notify("GrowScan bawaan game tidak tersedia, pakai scan dunia di bawah.")
-        end
-    end)
-
-    local list = New("Frame", {
-        Size = UDim2.new(1, 0, 0, 0),
-        AutomaticSize = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        LayoutOrder = 3,
-    }, page)
-    New("UIListLayout", {
-        Padding = UDim.new(0, 4),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, list)
-
-    local function Render()
-        for _, child in ipairs(list:GetChildren()) do
-            if not child:IsA("UIListLayout") then
-                child:Destroy()
+        local threats = threatsOf(here)
+        local fresh = {}
+        for _, p in ipairs(threats) do
+            if not Guard.Alerted[p.id] then
+                Guard.Alerted[p.id] = true
+                fresh[#fresh + 1] = p
             end
         end
-        local data = ScanWorld()
-        if not data then
-            Label(list, { Size = UDim2.new(1, 0, 0, 20), Text = "World belum terbaca.", TextColor3 = C.mute, TextSize = 11 })
+        if #fresh > 0 then
+            trigger(fresh)
+            if Guard.Mode == "away" or Guard.Mode == "out" then return end
+        end
+
+        if #threats > 0 then
+            Guard.CalmAt = nil
+            Guard.Status = (Guard.Mode == "pause" and "Dijeda. Ada: " or "Waspada. Ada: ") .. names(threats)
             return
         end
-        local order = 0
-        local function AddGroup(title, counts, pickable)
-            local entries = {}
-            for id, count in pairs(counts) do
-                table.insert(entries, { id = id, count = count })
+
+        if Guard.Mode == "pause" then
+            Guard.CalmAt = Guard.CalmAt or now
+            local wait = Guard.CalmSec - (now - Guard.CalmAt)
+            if wait > 0 then
+                Guard.Status = ("Mereka sudah pergi. Lanjut dalam %d detik"):format(math.ceil(wait))
+                return
             end
-            table.sort(entries, function(a, b)
-                if a.count ~= b.count then
-                    return a.count > b.count
-                end
-                return a.id < b.id
-            end)
-            order += 1
-            Label(list, {
-                Size = UDim2.new(1, 0, 0, 18),
-                Text = string.upper(title) .. " (" .. #entries .. " jenis)",
-                TextColor3 = C.mute,
-                Font = CARTOON_FONT,
-                TextSize = 11,
-                TextWrapped = false,
-                LayoutOrder = order,
-            })
-            for _, entry in ipairs(entries) do
-                order += 1
-                local row = MakeButton(list, string.format("%s   [ID %d]   x%d", ItemName(entry.id), entry.id, entry.count), "ghost", {
-                    Size = UDim2.new(1, 0, 0, 26),
-                    TextSize = 11,
-                    TextXAlignment = Enum.TextXAlignment.Left,
-                    LayoutOrder = order,
-                })
-                New("UIPadding", { PaddingLeft = UDim.new(0, 10) }, row)
-                row.MouseButton1Click:Connect(function()
-                    CopyId(entry.id)
-                    if pickable then
-                        Config.farmPlaceId = entry.id
-                        SaveConfig()
-                        Notify("Block Auto Farm: " .. ItemName(entry.id) .. " (ID " .. entry.id .. ")")
-                    else
-                        Notify(ItemName(entry.id) .. " = ID " .. entry.id)
-                    end
-                end)
+            Guard.CalmAt = nil
+            if Guard.AutoBack and Guard.Saved then
+                notify("Penjaga", "Sudah aman, lanjut aktivitas", 4)
+                beginResume()
+            else
+                Guard.Mode, Guard.Saved = "idle", nil
             end
+            return
         end
-        AddGroup("Foreground", data.fg, true)
-        AddGroup("Background", data.bg, true)
-        AddGroup("Item tergeletak", data.drops, false)
+
+        if Guard.Mode == "back" then
+            Guard.Status = Guard.BackText or "Lanjut aktivitas..."
+            return
+        end
+        Guard.Status = "Aman"
     end
 
-    AddButton(page, "Scan isi world", "ghost", Render)
-    AddNote(page, "Tap salah satu hasil untuk menjadikannya block Auto Farm (foreground/background).")
-    -- pindahkan daftar hasil ke bawah tombol dan catatan
-    list.LayoutOrder = NextOrder(page)
-end
+    function Guard.updateStatus(here)
+        local txt = table.concat({
+            "Status: " .. Guard.Status .. (Refs.Others and "" or " (data pemain belum ketemu: tekan 'Hubungkan ke game')"),
+            "Pemain di world: " .. ((#here == 0) and "tidak ada" or names(here, 6)),
+            "Staff online di server: " .. serverStaff(),
+            "Terdeteksi: " .. Guard.Detected .. " kali",
+        }, "\n")
+        if txt ~= Guard.LastTxt then
+            Guard.LastTxt = txt
+            if UI.GuardStatus then pcall(function() UI.GuardStatus:SetDesc(txt) end) end
+        end
+    end
 
--- Jendela utama ------------------------------------------------------
-local TAB_ORDER = {
-    { id = "features", label = "Fitur", icon = "Ft" },
-    { id = "farm", label = "Auto Farm", icon = "Fm" },
-    { id = "clear", label = "Auto Clear", icon = "Cl" },
-    { id = "dirt", label = "Dirt Farm", icon = "Df" },
-    { id = "breakid", label = "Break ID", icon = "Id" },
-    { id = "spam", label = "Spam Chat", icon = "Sp" },
-    { id = "hidden", label = "Hidden Name", icon = "Hn" },
-    { id = "nav", label = "Click TP", icon = "TP" },
-    { id = "quest", label = "Auto Quest", icon = "Qs" },
-    { id = "scan", label = "GrowScan", icon = "Sc" },
-    { id = "pos", label = "Posisi", icon = "Ps" },
-    { id = "visual", label = "Visual Item", icon = "Vs" },
-    { id = "session", label = "Sesi", icon = "Ss" },
-    { id = "settings", label = "Setelan", icon = "St" },
-    { id = "help", label = "Bantuan", icon = "?" },
+    -- Nyalakan / matikan Penjaga
+    function Guard.set(on)
+        Guard.On = on
+        Guard.Token += 1
+        Auto.stopWalk()
+        Guard.Mode, Guard.Saved, Guard.CalmAt, Guard.BackText = "idle", nil, nil, nil
+        table.clear(Guard.Alerted)
+        table.clear(Guard.Allow)
+        if on then
+            -- pemain biasa yang sudah ada sekarang diabaikan (teman / akun sendiri)
+            for _, p in ipairs(playersHere()) do
+                if not p.role then Guard.Allow[p.id] = true end
+            end
+        end
+    end
+
+    -- dipakai fitur lain (Auto Reconnect)
+    Guard.snapshot = snapshot
+    Guard.stopAll = stopAll
+    Guard.enterWorld = enterWorld
+    Guard.leaveWorld = leaveWorld
+    Guard.worldName = worldName
+    Guard.anyRunning = anyRunning
+    function Guard.afterEnter()
+        Auto.resetReach()
+        pcall(findDropRefs)
+        pcall(Auto.findTreeRefs)
+        table.clear(DropFailUntil)
+    end
+    function Guard.resumeSaved(saved)
+        Guard.Saved = saved
+        beginResume()
+    end
+
+    function Guard.allowNow()
+        local n = 0
+        for _, p in ipairs(playersHere()) do
+            if not p.role then
+                Guard.Allow[p.id] = true
+                n += 1
+            end
+        end
+        return n
+    end
+
+    task.spawn(function()
+        while alive() do
+            local here = (Guard.Mode ~= "away" and Guard.Mode ~= "out") and playersHere() or {}
+            local ok, err = pcall(Guard.tick, here)
+            if not ok then warn("[Fian792] Penjaga error: " .. tostring(err)) end
+            Guard.updateStatus(here)
+            task.wait(0.5)
+        end
+    end)
+end)() end
+
+Config.add("Penjaga", Guard, { "On", "Who", "StopAll", "Leave", "AutoBack", "BackSec", "CalmSec" }, { On = true })
+
+-- ===== TAB: PENJAGA =====
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local GuardTab = makeTab("Penjaga", "eye", "aman")
+
+    safe(function()
+        UI.GuardStatus = GuardTab:Paragraph({ Title = "Status Penjaga", Desc = "Mati" })
+    end)
+
+    local gCtl = box(GuardTab, "Kontrol", true)
+    local gAct = box(GuardTab, "Aksi saat terdeteksi", true)
+    local gTime = box(GuardTab, "Waktu", false)
+    local gMore = box(GuardTab, "Lainnya", false)
+
+    safe(function()
+        UI.GuardToggle = gCtl:Toggle({
+            Title = "Aktifkan Penjaga",
+            Desc = "Pantau Mod / Dev / pemain yang masuk world",
+            Value = false,
+            Callback = function(on) Guard.set(on) end,
+        })
+    end)
+
+    safe(function()
+        gCtl:Dropdown({
+            Title = "Yang dideteksi",
+            Desc = "Semua pemain: yang sudah ada saat dinyalakan diabaikan",
+            Values = { "Staff (Mod/Dev)", "Semua pemain" },
+            Value = Guard.Who,
+            Callback = function(opt) Guard.Who = opt end,
+        })
+    end)
+
+    safe(function()
+        gAct:Toggle({
+            Title = "Diam semua aktivitas",
+            Desc = "Stop Auto Farm, Clear, Farmer & Auto Chat",
+            Value = Guard.StopAll,
+            Callback = function(on) Guard.StopAll = on end,
+        })
+    end)
+
+    safe(function()
+        gAct:Toggle({
+            Title = "Keluar world",
+            Desc = "Langsung keluar world saat terdeteksi",
+            Value = Guard.Leave,
+            Callback = function(on) Guard.Leave = on end,
+        })
+    end)
+
+    safe(function()
+        gAct:Toggle({
+            Title = "Lanjut otomatis setelah aman",
+            Desc = "Keluar world: masuk lagi, cek, lalu lanjut aktivitas sebelumnya",
+            Value = Guard.AutoBack,
+            Callback = function(on) Guard.AutoBack = on end,
+        })
+    end)
+
+    addNumber(gTime, {
+        Title = "Masuk world lagi setelah (detik)",
+        Desc = "Untuk mode keluar world",
+        Min = 20, Max = 600, Step = 5, Default = Guard.BackSec,
+        Callback = function(v) Guard.BackSec = math.floor(v) end,
+    })
+
+    addNumber(gTime, {
+        Title = "Tunggu aman (detik)",
+        Desc = "Untuk mode diam: jeda setelah mereka pergi",
+        Min = 2, Max = 60, Step = 1, Default = Guard.CalmSec,
+        Callback = function(v) Guard.CalmSec = math.floor(v) end,
+    })
+
+    safe(function()
+        gMore:Button({
+            Title = "Abaikan pemain yang ada sekarang",
+            Desc = "Untuk teman / akun sendiri (staff tetap dideteksi)",
+            Callback = function()
+                notify("Penjaga", Guard.allowNow() .. " pemain diabaikan", 3)
+            end,
+        })
+    end)
+
+    safe(function()
+        gMore:Button({
+            Title = "Batalkan tunggu / lanjut",
+            Desc = "Hentikan proses keluar-masuk & lanjut otomatis",
+            Callback = function()
+                Guard.set(Guard.On)
+                notify("Penjaga", "Dibatalkan", 3)
+            end,
+        })
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- BONUS: auto klaim quest & auto redeem code
+---------------------------------------------------------------------
+-- Pakai panggilan yang sama dengan menu Quest & Redeem game:
+--   Net.call("Quests", "list")            -> daftar quest hari ini
+--   Net.call("Quests", "claim", id)       -> klaim hadiah (server yang cek syaratnya)
+--   Net.call("ActiveCodes")               -> daftar code aktif
+--   Net.call("ModCommand", "redeemcode", code) -> tukar code (dipakai menu Redeem game)
+local Bonus = {
+    Quest = false,
+    Redeem = false,
+    QuestEvery = 30,   -- cek quest tiap 30 detik
+    CodeEvery = 300,   -- cek code tiap 5 menit
+    NextQuest = 0,
+    NextCode = 0,
+    Claimed = 0,
+    Redeemed = 0,
+    Tried = {},        -- code yang sudah dicoba
+    QuestFail = {},    -- quest yang ditolak server (dicoba lagi nanti)
+    QuestText = "-",
+    CodeText = "-",
+    ResetAt = nil,
 }
 
-local function SwitchTab(id)
-    hub.active = id
-    for tabId, page in pairs(hub.pages) do
-        page.Visible = (tabId == id)
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local function strip(s) return (tostring(s or ""):gsub("`.", "")) end
+
+    local function netCall(...)
+        if NetOk and type(Net) == "table" and type(Net.call) == "function" then
+            return pcall(Net.call, ...)
+        end
+        return false, "Net.call tidak ada"
     end
 
-    -- bangun halaman hanya saat tab pertama kali dibuka
-    local selectedPage = hub.pages[id]
-    if selectedPage and not (hub.built and hub.built[id]) then
-        hub.built = hub.built or {}
-        hub.built[id] = true
-        local builder = hub.builders[id]
-        if builder then
-            local okBuild, err = pcall(builder, selectedPage)
-            if not okBuild then
-                AddNote(selectedPage, "Gagal memuat halaman: " .. tostring(err))
+    local function timeText(sec)
+        sec = math.max(0, math.floor(sec or 0))
+        if sec >= 3600 then return ("%dj %dm"):format(sec // 3600, sec % 3600 // 60) end
+        return ("%dm %dd"):format(sec // 60, sec % 60)
+    end
+
+    local function setGems(n)
+        local g = Refs.Gems
+        if type(n) == "number" and g and type(rawget(g, "setGems")) == "function" then
+            pcall(g.setGems, n)
+        end
+    end
+
+    function Bonus.checkQuests()
+        if Bonus.BusyQ then return end
+        Bonus.BusyQ = true
+        local ok, good, data = netCall("Quests", "list")
+        if not ok then
+            Bonus.QuestText = "Gagal ambil quest: " .. strip(good)
+        elseif not good or type(data) ~= "table" or type(data.quests) ~= "table" then
+            Bonus.QuestText = "Quest belum bisa diambil" .. (type(data) == "string" and (": " .. strip(data)) or "")
+        else
+            local total, done, wait = 0, 0, 0
+            local now = os.clock()
+            for _, q in ipairs(data.quests) do
+                total += 1
+                local have, need = tonumber(q.have) or 0, tonumber(q.need) or math.huge
+                if q.claimed then
+                    done += 1
+                elseif have >= need and not ((Bonus.QuestFail[q.id] or 0) > now) then
+                    -- syarat sama seperti tombol Claim game
+                    local okc, success, msg, _, gems = netCall("Quests", "claim", q.id)
+                    if okc and success then
+                        done += 1
+                        Bonus.Claimed += 1
+                        local reward = q.xp and (tostring(q.reward) .. " XP") or (tostring(q.reward) .. " gems")
+                        notify("Quest diklaim", strip(q.text or q.id) .. "  +" .. reward, 4)
+                        Hook.send("bonus", "Quest diklaim: " .. strip(q.text or q.id) .. " +" .. reward)
+                        setGems(gems)
+                    else
+                        wait += 1
+                        Bonus.QuestFail[q.id] = now + 120
+                        if okc and msg then Bonus.LastQuestMsg = strip(msg) end
+                    end
+                    task.wait(0.6)
+                elseif have >= need then
+                    wait += 1
+                end
+            end
+            Bonus.ResetAt = os.clock() + (tonumber(data.resetIn) or 0)
+            Bonus.QuestText = ("Selesai %d/%d | diklaim script: %d"):format(done, total, Bonus.Claimed)
+                .. ((wait > 0) and (" | ditolak: " .. wait) or "")
+        end
+        Bonus.BusyQ = false
+    end
+
+    -- Tukar 1 code. Berhasil kalau balasan server diawali warna hijau (`2)
+    function Bonus.redeem(code)
+        local ok, res = netCall("ModCommand", "redeemcode", code)
+        if not ok then return nil, "tidak bisa ke server" end
+        local lines = type(res) == "table" and type(res.lines) == "table" and res.lines or nil
+        if not lines then return false, "balasan kosong" end
+        local first = tostring(lines[1] or "")
+        local parts = {}
+        for _, l in ipairs(lines) do parts[#parts + 1] = strip(l) end
+        return string.sub(first, 1, 2) == "`2", table.concat(parts, " ")
+    end
+
+    function Bonus.checkCodes()
+        if Bonus.BusyR then return end
+        Bonus.BusyR = true
+        local ok, list = netCall("ActiveCodes")
+        if not ok or type(list) ~= "table" then
+            Bonus.CodeText = "Gagal ambil daftar code"
+        elseif list.note ~= nil then
+            Bonus.CodeText = "Redeem sedang ditutup: " .. strip(list.note)
+        else
+            local total, have, newOk = 0, 0, 0
+            for _, c in ipairs(list) do
+                total += 1
+                local code = c.code and tostring(c.code)
+                if c.done then
+                    have += 1
+                elseif code and not Bonus.Tried[code] and not (type(c.uses) == "number" and c.uses == 0) then
+                    local success, msg = Bonus.redeem(code)
+                    if success ~= nil then Bonus.Tried[code] = true end -- server sudah jawab
+                    if success then
+                        have += 1
+                        newOk += 1
+                        Bonus.Redeemed += 1
+                        notify("Redeem berhasil", code .. ": " .. tostring(msg), 5)
+                        Hook.send("bonus", "Redeem berhasil " .. code .. ": " .. tostring(msg))
+                    elseif success == false then
+                        Bonus.LastCodeMsg = code .. ": " .. tostring(msg)
+                    end
+                    task.wait(1)
+                end
+            end
+            Bonus.CodeText = ("Code aktif: %d | sudah ditukar: %d | ditukar script: %d"):format(total, have, Bonus.Redeemed)
+        end
+        Bonus.BusyR = false
+    end
+
+    function Bonus.updateStatus()
+        local now = os.clock()
+        local q = Bonus.QuestText
+        if Bonus.ResetAt then q = q .. "\nQuest baru dalam " .. timeText(Bonus.ResetAt - now) end
+        if Bonus.LastQuestMsg then q = q .. "\nPesan terakhir: " .. Bonus.LastQuestMsg end
+        q = q .. "\n" .. (Bonus.Quest and ("Cek lagi dalam " .. math.max(0, math.ceil(Bonus.NextQuest - now)) .. " detik") or "Auto klaim mati")
+        local c = Bonus.CodeText
+        if Bonus.LastCodeMsg then c = c .. "\nPesan terakhir: " .. Bonus.LastCodeMsg end
+        c = c .. "\n" .. (Bonus.Redeem and ("Cek lagi dalam " .. timeText(Bonus.NextCode - now)) or "Auto redeem mati")
+        if UI.QuestStatus then pcall(function() UI.QuestStatus:SetDesc(q) end) end
+        if UI.CodeStatus then pcall(function() UI.CodeStatus:SetDesc(c) end) end
+    end
+
+    task.spawn(function()
+        while alive() do
+            local now = os.clock()
+            if Bonus.Quest and now >= Bonus.NextQuest then
+                Bonus.NextQuest = now + Bonus.QuestEvery
+                pcall(Bonus.checkQuests)
+            end
+            if Bonus.Redeem and now >= Bonus.NextCode then
+                Bonus.NextCode = now + Bonus.CodeEvery
+                pcall(Bonus.checkCodes)
+            end
+            Bonus.updateStatus()
+            task.wait(1)
+        end
+    end)
+end)() end
+
+Config.add("Bonus", Bonus, { "Quest", "Redeem" })
+
+-- ===== TAB: BONUS =====
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local BonusTab = makeTab("Bonus", "gift", "fitur")
+    local bQuest = box(BonusTab, "Quest Harian", true)
+    local bCode = box(BonusTab, "Redeem Code", true)
+
+    safe(function()
+        UI.QuestStatus = bQuest:Paragraph({ Title = "Status", Desc = "-" })
+    end)
+
+    safe(function()
+        bQuest:Toggle({
+            Title = "Auto Claim Quest",
+            Desc = "Klaim hadiah quest yang sudah selesai",
+            Value = Bonus.Quest,
+            Callback = function(on)
+                Bonus.Quest = on
+                if on then Bonus.NextQuest = 0 end
+            end,
+        })
+    end)
+
+    safe(function()
+        bQuest:Button({
+            Title = "Cek quest sekarang",
+            Callback = function() task.spawn(Bonus.checkQuests) end,
+        })
+    end)
+
+    safe(function()
+        UI.CodeStatus = bCode:Paragraph({ Title = "Status", Desc = "-" })
+    end)
+
+    safe(function()
+        bCode:Toggle({
+            Title = "Auto Redeem Code",
+            Desc = "Tukar semua code aktif yang belum dipakai",
+            Value = Bonus.Redeem,
+            Callback = function(on)
+                Bonus.Redeem = on
+                if on then Bonus.NextCode = 0 end
+            end,
+        })
+    end)
+
+    safe(function()
+        bCode:Button({
+            Title = "Cek code sekarang",
+            Callback = function()
+                table.clear(Bonus.Tried)
+                task.spawn(Bonus.checkCodes)
+            end,
+        })
+    end)
+
+    safe(function()
+        bCode:Input({
+            Title = "Redeem code manual",
+            Desc = "Ketik code lalu tekan Enter",
+            Value = "",
+            Placeholder = "KODE",
+            Callback = function(text)
+                local code = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if code == "" then return end
+                task.spawn(function()
+                    local success, msg = Bonus.redeem(code)
+                    if success then Bonus.Redeemed += 1 end
+                    notify(success and "Redeem berhasil" or "Redeem gagal", code .. ": " .. tostring(msg), 5)
+                end)
+            end,
+        })
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- GROWSCAN: Floating Items & World Blocks (seperti Growscan 9000 di Growtopia)
+---------------------------------------------------------------------
+-- Cara kerja:
+--   - Floating Items: daftar drop di world (data drop game), dijumlah per item.
+--   - World Blocks: semua tile world dihitung per item (block depan + background).
+--     Seed yang tertanam di block depan = pohon.
+--   - Auto Scan: diulang tiap 2 detik. Hasil diurutkan dari jumlah terbanyak.
+local Scan = {
+    Auto = false,
+    Layer = "Semua",      -- "Semua" | "Depan" | "Background"
+    Filter = "",          -- cari nama item
+    Every = 2,
+    Limit = 60,           -- maksimal baris per daftar
+    Last = nil,
+}
+
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local function fmtNum(n)
+        local str = tostring(math.floor(n))
+        local out = str:reverse():gsub("(%d%d%d)", "%1."):reverse()
+        return (out:gsub("^%.", ""))
+    end
+
+    local function blockName(id)
+        local it = ItemDB[id]
+        local nm = itemName(id)
+        if it and it.kind == "seed" then nm = nm .. " (pohon)" end
+        return nm
+    end
+
+    -- Ubah hitungan {id = jumlah} jadi teks, urut dari terbanyak
+    local function listText(counts, nameFn)
+        local list = {}
+        for id, n in pairs(counts) do list[#list + 1] = { id = id, n = n } end
+        table.sort(list, function(a, b)
+            if a.n ~= b.n then return a.n > b.n end
+            return a.id < b.id
+        end)
+        local filter = string.lower(Scan.Filter or "")
+        local lines, total = {}, 0
+        for _, e in ipairs(list) do
+            local name = nameFn(e.id)
+            if filter == "" or string.find(string.lower(name), filter, 1, true) then
+                total += 1
+                if total <= Scan.Limit then
+                    lines[#lines + 1] = name .. "  x" .. fmtNum(e.n)
+                end
+            end
+        end
+        if total > Scan.Limit then lines[#lines + 1] = ("... +%d item lain (pakai Cari item)"):format(total - Scan.Limit) end
+        if #lines == 0 then lines[1] = (filter ~= "") and "Tidak ada yang cocok" or "Kosong" end
+        return table.concat(lines, "\n"), total
+    end
+
+    local function scanFloating()
+        local counts, total, piles = {}, 0, 0
+        local list = Drops.list
+        if type(list) ~= "table" then return nil end
+        for _, d in pairs(list) do
+            if type(d) == "table" and type(d.id) == "number" then
+                local n = tonumber(d.n) or 1
+                if n > 0 then
+                    counts[d.id] = (counts[d.id] or 0) + n
+                    total += n
+                    piles += 1
+                end
+            end
+        end
+        return counts, total, piles
+    end
+
+    local function scanBlocks()
+        local w = Refs.World
+        if not w or type(w.fg) ~= "table" or type(w.w) ~= "number" then return nil end
+        local fgC, bgC, nf, nb = {}, {}, 0, 0
+        local trees = {} -- [seed] = { r = siap, g = tumbuh, nxt = detik ke panen berikutnya }
+        local st = workspace:GetServerTimeNow()
+        local readyAt = Auto.treeReadyAt
+        for y = 0, w.h - 1 do
+            local rf = w.fg[y]
+            local rb = w.bg and w.bg[y]
+            for x = 0, w.w - 1 do
+                local a = rf and rf[x] or 0
+                if a ~= 0 then
+                    fgC[a] = (fgC[a] or 0) + 1
+                    nf += 1
+                    local it = ItemDB[a]
+                    if readyAt and it and it.kind == "seed" then
+                        local ra = readyAt(x, y, a)
+                        if ra then
+                            local e = trees[a]
+                            if not e then
+                                e = { r = 0, g = 0 }
+                                trees[a] = e
+                            end
+                            if st >= ra then
+                                e.r += 1
+                            else
+                                e.g += 1
+                                if not e.nxt or ra - st < e.nxt then e.nxt = ra - st end
+                            end
+                        end
+                    end
+                end
+                local b = rb and rb[x] or 0
+                if b ~= 0 then
+                    bgC[b] = (bgC[b] or 0) + 1
+                    nb += 1
+                end
+            end
+            if y % 64 == 63 then task.wait() end -- world besar: jangan bikin lag
+        end
+        return fgC, bgC, nf, nb, trees
+    end
+
+    local function waitText(sec)
+        sec = math.max(0, math.floor(sec or 0))
+        if sec >= 3600 then return ("%dj %dm"):format(sec // 3600, sec % 3600 // 60) end
+        return ("%dm %dd"):format(sec // 60, sec % 60)
+    end
+
+    -- Daftar pohon: siap panen dulu, lalu yang paling cepat siap
+    local function treeText(trees)
+        local list, totalR, totalG = {}, 0, 0
+        local filter = string.lower(Scan.Filter or "")
+        for id, e in pairs(trees) do
+            totalR += e.r
+            totalG += e.g
+            local name = itemName(id)
+            if filter == "" or string.find(string.lower(name), filter, 1, true) then
+                list[#list + 1] = { name = name, e = e }
+            end
+        end
+        table.sort(list, function(a, b)
+            if a.e.r ~= b.e.r then return a.e.r > b.e.r end
+            return (a.e.nxt or math.huge) < (b.e.nxt or math.huge)
+        end)
+        local lines = {}
+        for i, v in ipairs(list) do
+            if i > Scan.Limit then
+                lines[#lines + 1] = ("... +%d jenis lain"):format(#list - Scan.Limit)
+                break
+            end
+            local line = ("%s: %d siap | %d tumbuh"):format(v.name, v.e.r, v.e.g)
+            if v.e.nxt then line = line .. " (berikut " .. waitText(v.e.nxt) .. ")" end
+            lines[#lines + 1] = line
+        end
+        if #lines == 0 then lines[1] = (filter ~= "") and "Tidak ada yang cocok" or "Tidak ada pohon" end
+        return table.concat(lines, "\n"), totalR, totalG
+    end
+
+    local function setDesc(el, txt, key)
+        if Scan[key] == txt then return end
+        Scan[key] = txt
+        if el then pcall(function() el:SetDesc(txt) end) end
+    end
+
+    function Scan.run()
+        if Scan.Busy then return end
+        Scan.Busy = true
+        local w = Refs.World
+        local fl, flTotal, piles = scanFloating()
+        local fgC, bgC, nf, nb, trees = scanBlocks()
+        local treeTxt, treeR, treeG = "Data pohon belum ketemu", nil, nil
+        if trees then treeTxt, treeR, treeG = treeText(trees) end
+
+        local floatText = fl and select(1, listText(fl, itemName)) or "Data drop belum ketemu. Tekan 'Hubungkan ke game'"
+        local blockText = "Data world belum ketemu. Tekan 'Hubungkan ke game'"
+        if fgC then
+            local pick
+            if Scan.Layer == "Depan" then
+                pick = fgC
+            elseif Scan.Layer == "Background" then
+                pick = bgC
+            else
+                pick = {}
+                for id, n in pairs(fgC) do pick[id] = (pick[id] or 0) + n end
+                for id, n in pairs(bgC) do pick[id] = (pick[id] or 0) + n end
+            end
+            blockText = select(1, listText(pick, blockName))
+        end
+
+        local name = w and rawget(w, "name")
+        local info = table.concat({
+            "World: " .. ((type(name) == "string" and name ~= "") and name or "-")
+                .. (w and type(w.w) == "number" and (" (" .. w.w .. "x" .. w.h .. ")") or ""),
+            "Block depan: " .. (nf and fmtNum(nf) or "-") .. " | Background: " .. (nb and fmtNum(nb) or "-"),
+            "Floating: " .. (flTotal and (fmtNum(flTotal) .. " item (" .. piles .. " tumpukan)") or "-"),
+            "Pohon: " .. (treeR and (fmtNum(treeR) .. " siap panen | " .. fmtNum(treeG) .. " tumbuh") or "-"),
+            "Scan terakhir: " .. os.date("%H:%M:%S"),
+        }, "\n")
+
+        setDesc(UI.ScanInfo, info, "_info")
+        setDesc(UI.ScanFloat, floatText, "_float")
+        setDesc(UI.ScanBlocks, blockText, "_blocks")
+        setDesc(UI.ScanTrees, treeTxt, "_trees")
+        Scan.Busy = false
+    end
+
+    task.spawn(function()
+        local last = 0
+        while alive() do
+            if Scan.Auto and os.clock() - last >= Scan.Every then
+                last = os.clock()
+                pcall(Scan.run)
+            end
+            task.wait(0.5)
+        end
+    end)
+end)() end
+
+Config.add("Growscan", Scan, { "Auto", "Layer" })
+
+-- ===== TAB: GROWSCAN =====
+do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
+    local ScanTab = makeTab("Growscan", "scan-search", "fitur")
+
+    safe(function()
+        UI.ScanInfo = ScanTab:Paragraph({ Title = "Info World", Desc = "Tekan Scan sekarang" })
+    end)
+
+    local sCtl = box(ScanTab, "Kontrol", true)
+    local sFloat = box(ScanTab, "Floating Items", true)
+    local sBlock = box(ScanTab, "World Blocks", false)
+    local sTree = box(ScanTab, "Pohon (siap panen)", true)
+
+    safe(function()
+        sCtl:Toggle({
+            Title = "Auto Scan",
+            Desc = "Update otomatis tiap 2 detik",
+            Value = Scan.Auto,
+            Callback = function(on)
+                Scan.Auto = on
+                if on then task.spawn(Scan.run) end
+            end,
+        })
+    end)
+
+    safe(function()
+        sCtl:Button({
+            Title = "Scan sekarang",
+            Callback = function() task.spawn(Scan.run) end,
+        })
+    end)
+
+    safe(function()
+        sCtl:Input({
+            Title = "Cari item",
+            Desc = "Saring nama item (kosongkan = semua)",
+            Value = "",
+            Placeholder = "contoh: seed",
+            Callback = function(text)
+                Scan.Filter = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                task.spawn(Scan.run)
+            end,
+        })
+    end)
+
+    safe(function()
+        UI.ScanFloat = sFloat:Paragraph({ Title = "Daftar", Desc = "-" })
+    end)
+
+    safe(function()
+        sBlock:Dropdown({
+            Title = "Layer",
+            Values = { "Semua", "Depan", "Background" },
+            Value = Scan.Layer,
+            Callback = function(opt)
+                Scan.Layer = opt
+                task.spawn(Scan.run)
+            end,
+        })
+    end)
+
+    safe(function()
+        UI.ScanBlocks = sBlock:Paragraph({ Title = "Daftar", Desc = "-" })
+    end)
+
+    safe(function()
+        UI.ScanTrees = sTree:Paragraph({ Title = "Daftar", Desc = "-" })
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- STATISTIK SESI
+---------------------------------------------------------------------
+-- Cara kerja:
+--   - Saat execute (atau tombol Reset), angka awal dicatat.
+--   - Tiap detik: angka sekarang - angka awal = hasil sesi. Dibagi lama sesi = per jam.
+--   - Gems dibaca dari angka gems di HUD game (nilai di dalam fungsi addGems).
+do (function()
+    local function gemsNow()
+        local g = Refs.Gems
+        local f = g and rawget(g, "addGems")
+        if type(f) ~= "function" then return nil end
+        for _, v in pairs(getUpvalues(f)) do
+            if type(v) == "number" then return v end
+        end
+        return nil
+    end
+    Stats.gemsNow = gemsNow
+
+    local function fmt(n)
+        local str = tostring(math.floor(n or 0))
+        local neg = string.sub(str, 1, 1) == "-"
+        if neg then str = string.sub(str, 2) end
+        local out = str:reverse():gsub("(%d%d%d)", "%1."):reverse()
+        out = out:gsub("^%.", "")
+        return (neg and "-" or "") .. out
+    end
+
+    local function dur(sec)
+        sec = math.max(0, math.floor(sec))
+        return ("%dj %dm %dd"):format(sec // 3600, sec % 3600 // 60, sec % 60)
+    end
+
+    -- angka yang dihitung (semuanya naik terus selama script jalan)
+    local function counters()
+        return {
+            broken = State.Broken, placed = State.Placed, collected = State.Collected,
+            harvested = Farmer.Harvested, planted = Farmer.Planted,
+        }
+    end
+
+    function Stats.reset()
+        Stats.T0 = os.clock()
+        Stats.Gems0 = gemsNow()
+        Stats.Items = {}
+        Stats.Base = counters()
+    end
+    Stats.Base = counters()
+
+    function Stats.text()
+        local hours = math.max((os.clock() - Stats.T0) / 3600, 1 / 3600)
+        local now, base = counters(), Stats.Base
+        local function line(label, key)
+            local v = now[key] - (base[key] or 0)
+            return ("%s: %s  (%s/jam)"):format(label, fmt(v), fmt(v / hours))
+        end
+        local g = gemsNow()
+        if g and not Stats.Gems0 then Stats.Gems0 = g end
+        local gemLine = "Gems: -"
+        if g and Stats.Gems0 then
+            local d = g - Stats.Gems0
+            gemLine = ("Gems: %s  (%s%s, %s/jam)"):format(fmt(g), d >= 0 and "+" or "", fmt(d), fmt(d / hours))
+        end
+        -- 5 item terbanyak yang terkumpul
+        local top = {}
+        for id, n in pairs(Stats.Items) do top[#top + 1] = { id = id, n = n } end
+        table.sort(top, function(a, b) return a.n > b.n end)
+        local tops = {}
+        for i = 1, math.min(5, #top) do tops[i] = itemName(top[i].id) .. " x" .. fmt(top[i].n) end
+        return table.concat({
+            "Lama sesi: " .. dur(os.clock() - Stats.T0),
+            gemLine,
+            line("Block pecah", "broken"),
+            line("Block di-place", "placed"),
+            line("Drop diambil", "collected"),
+            line("Panen", "harvested"),
+            line("Tanam", "planted"),
+            "Item terbanyak: " .. ((#tops > 0) and table.concat(tops, ", ") or "-"),
+        }, "\n")
+    end
+
+    task.spawn(function()
+        local lastReport = os.clock()
+        while alive() do
+            local ok, txt = pcall(Stats.text)
+            if ok and UI.StatsText and txt ~= Stats.Shown then
+                Stats.Shown = txt
+                pcall(function() UI.StatsText:SetDesc(txt) end)
+            end
+            -- laporan berkala ke Discord
+            if Hook.ReportMin > 0 and os.clock() - lastReport >= Hook.ReportMin * 60 then
+                lastReport = os.clock()
+                if ok then Hook.send("report", "Laporan statistik\n```\n" .. txt .. "\n```") end
+            elseif Hook.ReportMin <= 0 then
+                lastReport = os.clock()
+            end
+            task.wait(1)
+        end
+    end)
+end)() end
+
+-- ===== TAB: STATISTIK =====
+do (function()
+    local StatTab = makeTab("Statistik", "bar-chart-3", "fitur")
+
+    safe(function()
+        UI.StatsText = StatTab:Paragraph({ Title = "Sesi ini", Desc = "-" })
+    end)
+
+    safe(function()
+        StatTab:Button({
+            Title = "Reset statistik",
+            Desc = "Mulai hitung dari nol",
+            Callback = function()
+                Stats.reset()
+                notify("Statistik", "Direset", 2)
+            end,
+        })
+    end)
+
+    safe(function()
+        StatTab:Button({
+            Title = "Kirim ke Discord sekarang",
+            Desc = "Perlu webhook di tab Discord",
+            Callback = function()
+                local ok, txt = pcall(Stats.text)
+                if not (Hook.On and Hook.valid(Hook.Url)) then
+                    notify("Statistik", "Aktifkan webhook Discord dulu", 3)
+                elseif ok then
+                    Hook.send("report", "Laporan statistik\n```\n" .. txt .. "\n```")
+                    notify("Statistik", "Masuk antrian kirim", 2)
+                end
+            end,
+        })
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- TAS: auto recycle item sampah & auto convert lock
+---------------------------------------------------------------------
+-- Cara kerja (sama seperti tombol di inventori game):
+--   Recycle : hapus dari inventori lalu World.call("Recycle", id, jumlah)
+--   Convert : 100 World Lock -> 1 Diamond Lock, 100 Diamond Lock -> 1 Blue Gem Lock
+--             lewat World.call("ConvertLock", dari, ke)
+-- Tool & lock tidak bisa dipilih untuk recycle (supaya tidak terbuang tidak sengaja).
+local Bag = {
+    TrashOn = false,
+    TrashList = {},    -- daftar id item yang di-recycle
+    TrashAt = 150,     -- recycle kalau jumlahnya sudah segini
+    Keep = 0,          -- sisakan sebanyak ini
+    LockOn = false,
+    Recycled = 0,
+    Converted = 0,
+    Status = "-",
+}
+
+do (function()
+    local LOCK_IDS = { [242] = true, [1796] = true, [7188] = true }
+    local LOCK_STEPS = {
+        { from = 242, to = 1796, name = "Diamond Lock" },
+        { from = 1796, to = 7188, name = "Blue Gem Lock" },
+    }
+
+    local function worldCall(...)
+        local w = Refs.World
+        local f = w and rawget(w, "call")
+        if type(f) ~= "function" then return false end
+        return pcall(f, ...)
+    end
+
+    local function trashable(id)
+        local it = ItemDB[id]
+        return it ~= nil and it.kind ~= "tool" and not LOCK_IDS[id]
+    end
+
+    function Bag.recycle(id, n)
+        if not Refs.Inv or n <= 0 or not trashable(id) then return false end
+        n = math.min(n, invCount(id))
+        if n <= 0 then return false end
+        pcall(function() Refs.Inv:remove(id, n) end)
+        local ok = worldCall("Recycle", id, n)
+        if ok then
+            Bag.Recycled += n
+            Bag.Status = ("Recycle %s x%d"):format(itemName(id), n)
+        end
+        return ok
+    end
+
+    -- sama seperti cek tombol convert di game (muat atau tidak)
+    local function convertLock(step)
+        local inv = Refs.Inv
+        if not inv or invCount(step.from) < 100 then return false end
+        local okU, used = pcall(function() return inv:used() end)
+        local okC, cap = pcall(function() return inv.capacity end)
+        if invCount(step.to) + 1 > 200 then return false end
+        if invCount(step.to) == 0 and invCount(step.from) ~= 100 and okU and okC
+            and type(used) == "number" and type(cap) == "number" and used >= cap then
+            return false
+        end
+        pcall(function()
+            inv:remove(step.from, 100)
+            inv:add(step.to, 1)
+        end)
+        local ok = worldCall("ConvertLock", step.from, step.to)
+        if ok then
+            Bag.Converted += 1
+            Bag.Status = "Convert ke " .. step.name
+        end
+        return ok
+    end
+
+    function Bag.tick()
+        if Bag.TrashOn then
+            for _, id in ipairs(Bag.TrashList) do
+                local n = invCount(id)
+                if n >= Bag.TrashAt and n > Bag.Keep then
+                    Bag.recycle(id, n - Bag.Keep)
+                    task.wait(0.5)
+                end
+            end
+        end
+        if Bag.LockOn then
+            for _, step in ipairs(LOCK_STEPS) do
+                if convertLock(step) then task.wait(0.5) end
             end
         end
     end
 
-    -- animasi masuk halaman
-    if selectedPage then
-        selectedPage.Position = UDim2.fromOffset(0, 58)
-        Tween(selectedPage, 0.22, { Position = UDim2.fromOffset(0, 46) })
-    end
-
-    for tabId, tab in pairs(hub.tabs) do
-        local active = (tabId == id)
-        Tween(tab.button, 0.18, { BackgroundTransparency = active and 0.8 or 1 })
-        if tab.label then
-            tab.label.TextColor3 = active and C.text or C.mute
+    -- label dropdown: item di inventori yang boleh di-recycle
+    function Bag.labels()
+        local out, seen = {}, {}
+        if Refs.Inv then
+            for _, slot in ipairs(Refs.Inv.slots) do
+                local id = slot.id
+                if id and not seen[id] and (slot.n or 0) > 0 and trashable(id) then
+                    seen[id] = true
+                    out[#out + 1] = { id = id, label = ("%s [%d]"):format(itemName(id), id) }
+                end
+            end
         end
-        tab.bar.Visible = active
-        Tween(tab.badge, 0.18, { BackgroundColor3 = active and C.accent or C.cardHi })
+        -- item yang sudah dipilih tetap tampil walau sedang habis
+        for _, id in ipairs(Bag.TrashList) do
+            if not seen[id] then
+                seen[id] = true
+                out[#out + 1] = { id = id, label = ("%s [%d]"):format(itemName(id), id) }
+            end
+        end
+        table.sort(out, function(a, b) return a.id < b.id end)
+        local labels, picked = {}, {}
+        for _, e in ipairs(out) do
+            labels[#labels + 1] = e.label
+            if table.find(Bag.TrashList, e.id) then picked[#picked + 1] = e.label end
+        end
+        return labels, picked
     end
 
-    if hub.title then
-        for _, tab in ipairs(TAB_ORDER) do
-            if tab.id == id then
-                hub.title.Text = tab.label
+    task.spawn(function()
+        while alive() do
+            pcall(Bag.tick)
+            if UI.BagStatus then
+                local txt = ("Status: %s\nDi-recycle: %d item | Convert lock: %d kali\nItem dipilih: %d"):format(
+                    Bag.Status, Bag.Recycled, Bag.Converted, #Bag.TrashList)
+                if txt ~= Bag.Shown then
+                    Bag.Shown = txt
+                    pcall(function() UI.BagStatus:SetDesc(txt) end)
+                end
+            end
+            task.wait(3)
+        end
+    end)
+end)() end
+
+Config.add("Tas", Bag, { "TrashOn", "TrashList", "TrashAt", "Keep", "LockOn" })
+
+-- ===== TAB: TAS =====
+do (function()
+    local BagTab = makeTab("Tas", "backpack", "fitur")
+
+    safe(function()
+        UI.BagStatus = BagTab:Paragraph({ Title = "Status", Desc = "-" })
+    end)
+
+    local bTrash = box(BagTab, "Auto Recycle (buang item)", true)
+    local bLock = box(BagTab, "Auto Convert Lock", false)
+
+    safe(function()
+        bTrash:Toggle({
+            Title = "Auto Recycle",
+            Desc = "Item yang dipilih di-recycle otomatis",
+            Value = Bag.TrashOn,
+            Callback = function(on) Bag.TrashOn = on end,
+        })
+    end)
+
+    safe(function()
+        local labels, picked = Bag.labels()
+        UI.TrashDropdown = bTrash:Dropdown({
+            Title = "Item yang di-recycle",
+            Desc = "Bisa pilih banyak. Tool & lock tidak ditampilkan",
+            Values = (#labels > 0) and labels or { "(inventori belum terbaca)" },
+            Value = picked,
+            Multi = true,
+            AllowNone = true,
+            Callback = function(opts)
+                local list = {}
+                for _, label in ipairs(type(opts) == "table" and opts or { opts }) do
+                    local id = tonumber(string.match(tostring(label), "%[(%d+)%]$"))
+                    if id then list[#list + 1] = id end
+                end
+                Bag.TrashList = list
+            end,
+        })
+    end)
+
+    -- dipanggil saat inventori berubah
+    local lastSig = nil
+    UI.TrashRefresh = function(force)
+        local labels, picked = Bag.labels()
+        local sig = table.concat(labels, "|")
+        if not force and sig == lastSig then return end
+        lastSig = sig
+        if not UI.TrashDropdown then return end
+        pcall(function() UI.TrashDropdown:Refresh((#labels > 0) and labels or { "(inventori kosong)" }) end)
+        if #picked > 0 then pcall(function() UI.TrashDropdown:Select(picked) end) end
+    end
+
+    addNumber(bTrash, {
+        Title = "Recycle kalau jumlah >=",
+        Desc = "200 = hanya saat penuh 1 slot",
+        Min = 1, Max = 200, Step = 1, Default = Bag.TrashAt,
+        Callback = function(v) Bag.TrashAt = math.floor(v) end,
+    })
+
+    addNumber(bTrash, {
+        Title = "Sisakan",
+        Desc = "Jumlah yang tidak ikut di-recycle",
+        Min = 0, Max = 199, Step = 1, Default = Bag.Keep,
+        Callback = function(v) Bag.Keep = math.floor(v) end,
+    })
+
+    safe(function()
+        bTrash:Button({
+            Title = "Refresh daftar item",
+            Callback = function() UI.TrashRefresh(true) end,
+        })
+    end)
+
+    safe(function()
+        bLock:Toggle({
+            Title = "Auto Convert Lock",
+            Desc = "100 WL -> 1 DL, 100 DL -> 1 BGL (sama seperti game)",
+            Value = Bag.LockOn,
+            Callback = function(on) Bag.LockOn = on end,
+        })
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- AUTO SPLICE
+---------------------------------------------------------------------
+-- Cara kerja (sama seperti splice manual di game):
+--   1. Tanam Seed A di tile Grid yang kosong (di bawahnya harus ada block).
+--   2. Taruh Seed B di atas pohon A -> World.spliceSeed(x, y, B).
+--   3. Server membalas id pohon hasil splice, tile langsung diganti di layar.
+--   Hasil splice diperkirakan dulu pakai modul Splice game; kalau tidak bisa, tidak dijalankan.
+do (function()
+    local okMod, SpliceMod = pcall(require, Shared:FindFirstChild("Splice"))
+
+    function Splice.result(a, b)
+        if not (okMod and type(SpliceMod) == "table" and type(SpliceMod.result) == "function") then return nil end
+        if not (a and b) then return nil end
+        local ok, r = pcall(SpliceMod.result, a, b)
+        return ok and r or nil
+    end
+
+    local function setVisual()
+        if UI.SpliceToggle then pcall(function() UI.SpliceToggle:Set(Splice.Running) end) end
+    end
+
+    function Splice.stop(reason)
+        Splice.Running = false
+        if Splice.Roaming then Auto.stopSpliceRoam() end
+        Splice.Status = reason or "Dihentikan"
+        setVisual()
+        if reason then notify("Auto Splice", reason, 4) end
+    end
+
+    local function treeSpliced(x, y)
+        local trees, w = Refs.Trees, Refs.World
+        local t = trees and w and trees[y * w.w + x]
+        return type(t) == "table" and t.s == true
+    end
+
+    local function spliceAt(x, y)
+        local w = Refs.World
+        local f = w and rawget(w, "spliceSeed")
+        if type(f) ~= "function" then return false, "fungsi splice game tidak ketemu" end
+        local ok, made = pcall(f, x, y, Splice.B)
+        if ok and made and ItemDB[made] then
+            pcall(function() Refs.Inv:remove(Splice.B, 1) end)
+            if Refs.SetTile then pcall(Refs.SetTile, "fg", x, y, made, true) end -- ganti di layar saja
+            Splice.Made += 1
+            Splice.Status = ("Splice jadi %s (%d,%d)"):format(itemName(made), x, y)
+            return true
+        end
+        return false, "ditolak server"
+    end
+
+    local function loop(runId)
+        while Splice.Running and alive() and Splice.RunId == runId do
+            local px, py = getPlayerTile()
+            if not px then
+                Splice.stop("Karakter tidak ditemukan (keluar world?)")
+                return
+            end
+            local A, B = Splice.A, Splice.B
+            local acted = false
+            local now = os.clock()
+            for _, o in ipairs(sortedOffsets()) do
+                if not Splice.Running then break end
+                local x, y = px + o.dx, py + o.dy
+                local key = x .. "," .. y
+                if not (Splice.Fail[key] and Splice.Fail[key] > now) then
+                    local fg = tileAt("fg", x, y)
+                    -- 1) tanam Seed A
+                    if fg == 0 and invCount(A) > 0 and invCount(B) > 0 and Auto.plantSpotOk(x, y, A) then
+                        sendSetTile("fg", x, y, A)
+                        pcall(function() Refs.Inv:remove(A, 1) end)
+                        Splice.Planted += 1
+                        Splice.Status = ("Tanam %s (%d,%d)"):format(itemName(A), x, y)
+                        acted = true
+                        task.wait(Splice.Ms / 1000)
+                        fg = tileAt("fg", x, y)
+                    end
+                    -- 2) splice Seed B ke pohon A
+                    if fg == A and invCount(B) > 0 and not treeSpliced(x, y) then
+                        local ok, why = spliceAt(x, y)
+                        if not ok then
+                            Splice.Fail[key] = os.clock() + 30
+                            Splice.Status = ("Gagal splice (%d,%d): %s"):format(x, y, why)
+                        end
+                        acted = true
+                        task.wait(Splice.Ms / 1000)
+                    end
+                end
+            end
+            if not acted then
+                if invCount(A) <= 0 or invCount(B) <= 0 then
+                    Splice.stop("Seed habis")
+                    return
+                end
+                Splice.Status = "Menunggu tile Grid kosong (panen dulu pohonnya)"
+                task.wait(1)
             end
         end
     end
-end
 
--- Drag: listener gerakan hanya aktif selama sedang menyeret
-local function MakeDraggable(handle, target)
-    local state = { moved = false }
-    handle.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1
-            and input.UserInputType ~= Enum.UserInputType.Touch then
+    function Splice.start()
+        if Splice.Running then return end
+        local err
+        if not Refs.World then
+            err = "Data world belum ketemu. Tekan 'Hubungkan ke game'"
+        elseif not (Splice.A and Splice.B) then
+            err = "Pilih Seed A dan Seed B dulu"
+        elseif Splice.A == Splice.B then
+            err = "Seed A dan Seed B harus beda"
+        elseif not Splice.result(Splice.A, Splice.B) then
+            err = "Kombinasi ini tidak bisa di-splice"
+        elseif not Splice.Roam and next(State.Offsets) == nil then
+            err = "Pilih tile dulu di Grid Tile (tab Farm), atau nyalakan Keliling world"
+        elseif State.Running or Clear.Running or Farmer.Running then
+            err = "Hentikan Auto Farm / Clear / Farmer dulu"
+        end
+        if err then
+            notify("Auto Splice", err, 4)
+            setVisual()
             return
         end
-        state.moved = false
-        local startPos = target.Position
-        local startInput = input.Position
-        local moveConn
-        moveConn = UserInputService.InputChanged:Connect(function(i)
-            if i.UserInputType == Enum.UserInputType.MouseMovement
-                or i.UserInputType == Enum.UserInputType.Touch then
-                local d = i.Position - startInput
-                if d.Magnitude > 5 then
-                    state.moved = true
-                end
-                if state.moved then
-                    target.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
-                        startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        table.clear(Splice.Fail)
+        Splice.Running = true
+        Splice.RunId = (Splice.RunId or 0) + 1
+        setVisual()
+        if Splice.Roam then
+            local e = Auto.startSpliceRoam()
+            if e then Splice.stop(e) end
+        else
+            task.spawn(loop, Splice.RunId)
+        end
+    end
+
+    function Splice.resultText()
+        if not (Splice.A and Splice.B) then return "Pilih Seed A dan Seed B" end
+        local r = Splice.result(Splice.A, Splice.B)
+        if not r then return "Hasil: tidak bisa di-splice" end
+        return "Hasil: " .. itemName(r)
+    end
+
+    task.spawn(function()
+        while alive() do
+            if UI.SpliceStatus then
+                local txt = ("Status: %s\n%s\nSeed A: %s (x%d) | Seed B: %s (x%d)\nDitanam: %d | Splice jadi: %d"):format(
+                    Splice.Running and Splice.Status or ("BERHENTI - " .. Splice.Status), Splice.resultText(),
+                    Splice.A and itemName(Splice.A) or "-", Splice.A and invCount(Splice.A) or 0,
+                    Splice.B and itemName(Splice.B) or "-", Splice.B and invCount(Splice.B) or 0,
+                    Splice.Planted, Splice.Made)
+                if txt ~= Splice.Shown then
+                    Splice.Shown = txt
+                    pcall(function() UI.SpliceStatus:SetDesc(txt) end)
                 end
             end
-        end)
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End and moveConn then
-                moveConn:Disconnect()
-                moveConn = nil
-            end
-        end)
-    end)
-    return state
-end
-
-local function CloseHub()
-    local frame = hub.frame
-    if not frame then
-        return
-    end
-
-    hub.frame = nil
-    hub.active = nil
-    hub.minimized = false
-    hub.scale = nil
-    hub.title = nil
-
-    for _, connection in ipairs(hub.dragConnections or {}) do
-        pcall(function() connection:Disconnect() end)
-    end
-    hub.dragConnections = {}
-
-    local scale = frame:FindFirstChildOfClass("UIScale")
-    if scale then
-        Tween(scale, 0.14, { Scale = 0.9 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-    end
-    task.delay(0.16, function()
-        if frame and frame.Parent then
-            frame:Destroy()
+            task.wait(1)
         end
     end)
-end
-hub.close = CloseHub
+end)() end
 
-local function OpenHub(tabId)
-    if hub.frame and hub.frame.Parent then
-        SwitchTab(tabId)
-        return
-    elseif hub.frame then
-        hub.frame = nil
-        hub.active = nil
-        hub.scale = nil
+Config.add("Splice", Splice, { "A", "B", "Ms", "Roam" })
+Splice.Ms = math.max(Splice.Ms, 140)
+
+-- ===== TAB: SPLICE =====
+do (function()
+    local SpTab = makeTab("Splice", "git-merge", "farm")
+
+    safe(function()
+        UI.SpliceStatus = SpTab:Paragraph({ Title = "Status Splice", Desc = "-" })
+    end)
+
+    local sCtl = box(SpTab, "Kontrol", true)
+    local sSeed = box(SpTab, "Seed", true)
+    local sSpeed = box(SpTab, "Kecepatan", false)
+
+    safe(function()
+        UI.SpliceToggle = sCtl:Toggle({
+            Title = "Auto Splice",
+            Desc = "Tanam Seed A lalu splice Seed B",
+            Value = false,
+            Callback = function(on)
+                if on then Splice.start() elseif Splice.Running then Splice.stop() end
+            end,
+        })
+    end)
+
+    local function seedLabels()
+        local labels = {}
+        for _, id in ipairs(seedIds()) do labels[#labels + 1] = ("%s [%d]"):format(itemName(id), id) end
+        if #labels == 0 then labels = { "(tidak ada seed di inventori)" } end
+        return labels
+    end
+    local function idOf(opt) return tonumber(string.match(tostring(opt or ""), "%[(%d+)%]$")) end
+
+    safe(function()
+        UI.SpliceA = sSeed:Dropdown({
+            Title = "Seed A (ditanam)",
+            Values = { "(memuat...)" },
+            Callback = function(opt)
+                local id = idOf(opt)
+                if id then Splice.A = id end
+            end,
+        })
+    end)
+
+    safe(function()
+        UI.SpliceB = sSeed:Dropdown({
+            Title = "Seed B (di-splice)",
+            Values = { "(memuat...)" },
+            Callback = function(opt)
+                local id = idOf(opt)
+                if id then Splice.B = id end
+            end,
+        })
+    end)
+
+    -- dipanggil saat inventori berubah
+    local lastSig = nil
+    UI.SpliceRefresh = function(force)
+        local labels = seedLabels()
+        local sig = table.concat(labels, "|")
+        if not force and sig == lastSig then return end
+        lastSig = sig
+        for _, pair in ipairs({ { UI.SpliceA, Splice.A }, { UI.SpliceB, Splice.B } }) do
+            local dd, id = pair[1], pair[2]
+            if dd then
+                pcall(function() dd:Refresh(labels) end)
+                if id then
+                    local want = "[" .. id .. "]"
+                    for _, l in ipairs(labels) do
+                        if string.sub(l, -#want) == want then
+                            pcall(function() dd:Select(l) end)
+                            break
+                        end
+                    end
+                end
+            end
+        end
     end
 
-    local guiRoot = GetGui()
-    local oldWindow = guiRoot:FindFirstChild("Hub")
-    if oldWindow then
-        oldWindow:Destroy()
+    safe(function()
+        sSeed:Button({
+            Title = "Refresh daftar seed",
+            Callback = function() UI.SpliceRefresh(true) end,
+        })
+    end)
+
+    safe(function()
+        sCtl:Toggle({
+            Title = "Keliling world (A*)",
+            Desc = "Nyala: jalan ke seluruh world. Mati: hanya tile Grid 5x5",
+            Value = Splice.Roam,
+            Callback = function(on)
+                if Splice.Running then Splice.stop("Mode diganti, nyalakan lagi") end
+                Splice.Roam = on
+            end,
+        })
+    end)
+
+    addNumber(sSpeed, {
+        Title = "Jeda tanam / splice (ms)",
+        Min = 140, Max = 2000, Step = 10, Default = Splice.Ms,
+        Callback = function(v) Splice.Ms = math.floor(v) end,
+    })
+end)() end
+
+-- ===== TAB: LAHAN (bangun farm world) =====
+do (function()
+    local LTab = makeTab("Lahan", "layout-grid", "farm")
+
+    safe(function()
+        UI.LahanStatus = LTab:Paragraph({ Title = "Status Lahan", Desc = "-" })
+    end)
+
+    local lCtl = box(LTab, "Bangun Lahan", true)
+    local lShape = box(LTab, "Bentuk lahan", true)
+    local lOpt = box(LTab, "Pilihan", false)
+
+    safe(function()
+        UI.BuildToggle = lCtl:Toggle({
+            Title = "Bangun Lahan",
+            Desc = "Hitung block, produksi kalau kurang, lalu pasang dari baris bawah",
+            Value = false,
+            Callback = function(on)
+                if on then Build.start() elseif Build.Running then Build.stop() end
+            end,
+        })
+    end)
+
+    safe(function()
+        UI.BuildBlockDropdown = lCtl:Dropdown({
+            Title = "Block lahan",
+            Desc = "Block padat dari inventori",
+            Values = { "(memuat...)" },
+            Callback = function(opt)
+                local id = tonumber(string.match(opt or "", "%[(%d+)%]$"))
+                if id then Build.BlockId = id end
+            end,
+        })
+    end)
+
+    local function num(text, def)
+        local v = tonumber(tostring(text or ""):match("%-?%d+"))
+        return v or def
     end
 
-    local camera = workspace.CurrentCamera
-    local viewport = camera and camera.ViewportSize or Vector2.new(900, 650)
-    local width = math.max(280, math.min(740, viewport.X - 24))
-    local height = math.max(300, math.min(600, viewport.Y - 36))
-    local sidebarWidth = width < 470 and 58 or 150
-    hub.narrow = width < 470
+    safe(function()
+        lShape:Input({
+            Title = "X awal",
+            Desc = "Kolom paling kiri",
+            Value = tostring(Land.X0),
+            Placeholder = "0",
+            Callback = function(t) Land.X0 = math.max(0, num(t, Land.X0)) end,
+        })
+    end)
 
-    local frame = New("Frame", {
-        Name = "Hub",
-        Size = UDim2.fromOffset(width, height),
-        Position = UDim2.new(0.5, -width / 2, 0.5, -height / 2),
-        BackgroundColor3 = C.window,
-        BorderSizePixel = 0,
-        Active = true,
-        ClipsDescendants = true,
-    }, guiRoot)
-    Corner(frame, 18)
-    UI.Gradient(New("UIStroke", {
-        Thickness = 1.6,
-        Transparency = 0.1,
-        Color = C.accent,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-    }, frame), C.accent, C.accent2, 45)
+    safe(function()
+        lShape:Input({
+            Title = "X akhir",
+            Desc = "Kolom paling kanan (lebih dari lebar world = sampai ujung)",
+            Value = tostring(Land.X1),
+            Placeholder = "99",
+            Callback = function(t) Land.X1 = math.max(0, num(t, Land.X1)) end,
+        })
+    end)
 
-    local scale = New("UIScale", { Scale = 0.9 }, frame)
-    Tween(scale, 0.25, { Scale = 1 }, Enum.EasingStyle.Back)
+    safe(function()
+        lShape:Input({
+            Title = "Y baris atas",
+            Desc = "Baris block paling atas (minimal 1)",
+            Value = tostring(Land.Y0),
+            Placeholder = "2",
+            Callback = function(t) Land.Y0 = math.max(1, num(t, Land.Y0)) end,
+        })
+    end)
 
-    hub.frame = frame
-    hub.scale = scale
-    hub.pages = {}
-    hub.tabs = {}
-    hub.refreshers = {}
-    hub.built = {}
-    hub.dragConnections = {}
-    hub.minimized = false
-
-    -- Header -------------------------------------------------------
-    local header = New("Frame", {
-        Name = "Header",
-        Size = UDim2.new(1, 0, 0, 60),
-        BackgroundColor3 = Color3.fromRGB(21, 29, 52),
-        BorderSizePixel = 0,
-    }, frame)
-    UI.Gradient(header, Color3.new(1, 1, 1), Color3.fromRGB(205, 190, 255), 0)
-
-    local logo = New("Frame", {
-        Position = UDim2.fromOffset(14, 10),
-        Size = UDim2.fromOffset(40, 40),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        BorderSizePixel = 0,
-    }, header)
-    Corner(logo, 12)
-    UI.Gradient(logo, C.accent, C.accent2, 45)
-    Label(logo, {
-        Text = "P",
-        Size = UDim2.fromScale(1, 1),
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 22,
-        Font = Enum.Font.GothamBlack,
-        TextXAlignment = Enum.TextXAlignment.Center,
-        TextWrapped = false,
+    addNumber(lShape, {
+        Title = "Jarak antar baris",
+        Desc = "2 = y1, y3, y5.. | 3 = y1, y4, y7.. (maks 3 supaya bisa lompat naik)",
+        Min = 2, Max = 3, Step = 1, Default = Land.Gap,
+        Callback = function(v) Land.Gap = math.floor(v) end,
     })
 
-    Label(header, {
-        Text = "PEEX HUB",
-        Position = UDim2.fromOffset(66, 10),
-        Size = UDim2.new(1, -160, 0, 22),
-        TextSize = 17,
-        Font = Enum.Font.GothamBold,
-        TextWrapped = false,
+    addNumber(lShape, {
+        Title = "Jumlah baris",
+        Min = 1, Max = 60, Step = 1, Default = Land.Rows,
+        Callback = function(v) Land.Rows = math.floor(v) end,
     })
-    local subtitle = Label(header, {
-        Text = "GROWBLOX",
-        Position = UDim2.fromOffset(67, 32),
-        Size = UDim2.new(1, -160, 0, 16),
-        TextColor3 = C.accent,
-        TextSize = 10,
-        Font = Enum.Font.GothamMedium,
-        TextWrapped = false,
-    })
+
+    safe(function()
+        lShape:Toggle({
+            Title = "Tangga di pojok kiri-kanan",
+            Desc = "Ujung baris dibuka bergantian, jadi bisa turun-naik zig-zag",
+            Value = Land.Stairs,
+            Callback = function(on) Land.Stairs = on end,
+        })
+    end)
+
+    safe(function()
+        lShape:Button({
+            Title = "Pakai posisi karakter sebagai pojok kiri-atas",
+            Desc = "X awal = kolom karakter, Y baris atas = tile di bawah kaki",
+            Callback = function()
+                local x, y = Auto.here()
+                if not x then
+                    notify("Lahan", "Kamu belum masuk world", 3)
+                    return
+                end
+                Land.X0, Land.Y0 = x, y + 1
+                notify("Lahan", ("X awal %d, Y baris atas %d"):format(Land.X0, Land.Y0), 4)
+            end,
+        })
+    end)
+
+    safe(function()
+        lOpt:Toggle({
+            Title = "Produksi block kalau kurang",
+            Desc = "Tanam & panen seed block itu dulu sampai cukup",
+            Value = Build.Produce,
+            Callback = function(on) Build.Produce = on end,
+        })
+    end)
+
+    safe(function()
+        lOpt:Toggle({
+            Title = "Boleh taruh block pijakan",
+            Desc = "Kalau baris paling bawah tidak terjangkau dari tanah",
+            Value = Build.UseBlock,
+            Callback = function(on)
+                Build.UseBlock = on
+                Auto.resetReach()
+            end,
+        })
+    end)
+
+    safe(function()
+        lOpt:Toggle({
+            Title = "Lanjut Pabrik setelah selesai",
+            Value = Build.ThenPabrik,
+            Callback = function(on) Build.ThenPabrik = on end,
+        })
+    end)
+
     task.spawn(function()
-        while hub.frame == frame and frame.Parent do
-            local w = CurrentWorldName()
-            subtitle.Text = "GROWBLOX v12  •  " .. (w ~= "" and w or "NO WORLD")
+        while alive() do
+            local txt
+            if Refs.World then
+                local info = Auto.landInfo(Build.BlockId)
+                local rows = Auto.landRows()
+                local have = Build.BlockId and invCount(Build.BlockId) or 0
+                local seed = Auto.seedOfBlock(Build.BlockId)
+                txt = table.concat({
+                    "Status   : " .. (Build.Running and "JALAN" or "BERHENTI") .. " - " .. Build.Phase,
+                    ("Bentuk   : %d baris (y %s), x %d-%d, jarak %d%s"):format(#rows,
+                        (#rows > 0) and (rows[1] .. "-" .. rows[#rows]) or "-", math.min(Land.X0, Land.X1),
+                        math.max(Land.X0, Land.X1), Land.Gap, Land.Stairs and ", tangga" or ""),
+                    ("Block    : %s | punya %d | butuh %d%s"):format(Build.BlockId and itemName(Build.BlockId) or "-",
+                        have, info.need, (info.need > have) and (" (kurang " .. (info.need - have) .. ")") or " (cukup)"),
+                    ("Terpasang: %d / %d%s"):format(info.done, info.total,
+                        info.blocked > 0 and (" | terhalang block lain: " .. info.blocked) or ""),
+                    (info.gap > 0) and ("Celah tanam terisi block: " .. info.gap .. " (bersihkan dulu)") or "Celah tanam: bersih",
+                    "Seed block: " .. (seed and (itemName(seed) .. " x" .. invCount(seed)) or "-"),
+                    "Aksi     : " .. Build.Status,
+                }, "\n")
+            else
+                txt = "Data world belum ketemu"
+            end
+            if UI.LahanStatus and txt ~= Build.Shown then
+                Build.Shown = txt
+                pcall(function() UI.LahanStatus:SetDesc(txt) end)
+            end
+            task.wait(1)
+        end
+    end)
+end)() end
+
+-- ===== TAB: PABRIK =====
+do (function()
+    local PTab = makeTab("Pabrik", "factory", "farm")
+
+    safe(function()
+        UI.PabrikStatus = PTab:Paragraph({ Title = "Status Pabrik", Desc = "-" })
+    end)
+
+    local pCtl = box(PTab, "Kontrol", true)
+    local pBreak = box(PTab, "Posisi & tile break", true)
+    local pDrop = box(PTab, "Drop seed", true)
+
+    safe(function()
+        UI.PabrikToggle = pCtl:Toggle({
+            Title = "Jalankan Pabrik",
+            Desc = "Break -> tanam -> panen -> break lagi, seed lebihan di-drop",
+            Value = false,
+            Callback = function(on)
+                if on then Pabrik.start() elseif Pabrik.Running then Pabrik.stop() end
+            end,
+        })
+    end)
+
+    safe(function()
+        UI.PabrikSeedDropdown = pCtl:Dropdown({
+            Title = "Seed pabrik",
+            Desc = "Block-nya otomatis (contoh: Dirt Seed -> Dirt)",
+            Values = { "(memuat...)" },
+            Callback = function(opt)
+                local id = tonumber(string.match(opt or "", "%[(%d+)%]$"))
+                if id then Pabrik.SeedId = id end
+            end,
+        })
+    end)
+
+    safe(function()
+        pCtl:Toggle({
+            Title = "Tanam di seluruh world",
+            Desc = "Mati = hanya di lahan (tab Lahan)",
+            Value = Pabrik.WholeWorld,
+            Callback = function(on) Pabrik.WholeWorld = on end,
+        })
+    end)
+
+    safe(function()
+        pBreak:Button({
+            Title = "Pakai posisi sekarang untuk break",
+            Desc = "Berdiri di tempat break, lalu tekan",
+            Callback = function()
+                local x, y = Auto.here()
+                if not x then
+                    notify("Pabrik", "Kamu belum masuk world", 3)
+                    return
+                end
+                Pabrik.BreakX, Pabrik.BreakY = x, y
+                notify("Pabrik", ("Posisi break (%d,%d)"):format(x, y), 3)
+            end,
+        })
+    end)
+
+    safe(function()
+        pBreak:Button({
+            Title = "Pilih tile break (Grid)",
+            Desc = "Grid terbuka dalam mode Pabrik (terpisah dari tile Auto Farm)",
+            Callback = function()
+                if UI.setGridMode then UI.setGridMode("pabrik") end
+                if UI.GridGui then UI.GridGui.Enabled = true end
+            end,
+        })
+    end)
+
+    addNumber(pBreak, {
+        Title = "Lama 1 sesi break (detik)",
+        Desc = "Setelah ini cek pohon siap dulu",
+        Min = 15, Max = 300, Step = 5, Default = Pabrik.BreakSec,
+        Callback = function(v) Pabrik.BreakSec = math.floor(v) end,
+    })
+
+    safe(function()
+        pDrop:Toggle({
+            Title = "Auto drop seed",
+            Value = Pabrik.Drop,
+            Callback = function(on) Pabrik.Drop = on end,
+        })
+    end)
+
+    addNumber(pDrop, {
+        Title = "Sisakan seed",
+        Desc = "Untuk ditanam lagi",
+        Min = 0, Max = 199, Step = 1, Default = Pabrik.Keep,
+        Callback = function(v) Pabrik.Keep = math.floor(v) end,
+    })
+
+    addNumber(pDrop, {
+        Title = "Drop kalau seed sudah",
+        Desc = "Contoh 200 & sisakan 50 = drop 150",
+        Min = 2, Max = 200, Step = 1, Default = Pabrik.DropAt,
+        Callback = function(v) Pabrik.DropAt = math.floor(v) end,
+    })
+
+    safe(function()
+        UI.DropWorldInput = pDrop:Input({
+            Title = "World drop",
+            Desc = "Kosong = world ini | WORLD | WORLD:ID (masuk lewat pintu ID)",
+            Value = Pabrik.DropWorld,
+            Placeholder = "STORAGE:1",
+            Callback = function(t) Pabrik.DropWorld = tostring(t or "") end,
+        })
+    end)
+
+    safe(function()
+        pDrop:Button({
+            Title = "Pakai posisi sekarang untuk drop",
+            Desc = "Berdiri di tempat drop (boleh di world lain), lalu tekan",
+            Callback = function()
+                local x, y = Auto.here()
+                if not x then
+                    notify("Pabrik", "Kamu belum masuk world", 3)
+                    return
+                end
+                Pabrik.DropX, Pabrik.DropY = x, y
+                -- world ikut diisi, kecuali sudah pakai format WORLD:ID
+                if not string.find(Pabrik.DropWorld or "", ":", 1, true) then
+                    Pabrik.DropWorld = Guard.worldName()
+                    if UI.DropWorldInput then pcall(function() UI.DropWorldInput:Set(Pabrik.DropWorld) end) end
+                end
+                notify("Pabrik", ("Posisi drop (%d,%d) di %s"):format(x, y, Pabrik.DropWorld), 4)
+            end,
+        })
+    end)
+
+    safe(function()
+        pDrop:Button({
+            Title = "Hapus posisi drop",
+            Desc = "Drop di titik kedatangan (pintu) saja",
+            Callback = function()
+                Pabrik.DropX, Pabrik.DropY = -1, -1
+                notify("Pabrik", "Posisi drop dihapus", 3)
+            end,
+        })
+    end)
+
+    local function countKeys(t)
+        local n = 0
+        for _ in pairs(t) do n += 1 end
+        return n
+    end
+
+    task.spawn(function()
+        while alive() do
+            local seed, block = Pabrik.SeedId, Auto.blockOfSeed(Pabrik.SeedId)
+            local name, door = Auto.parseDropTarget()
+            local dropAt = (name ~= "" and name or "world ini") .. (door and (" pintu " .. door) or "")
+                .. (Pabrik.DropX >= 0 and (" (" .. Pabrik.DropX .. "," .. Pabrik.DropY .. ")") or "")
+            local txt = table.concat({
+                "Status : " .. (Pabrik.Running and ("JALAN - fase " .. tostring(Pabrik.Phase or "-")) or "BERHENTI"),
+                ("Seed   : %s x%d | block %s x%d"):format(seed and itemName(seed) or "-", seed and invCount(seed) or 0,
+                    block and itemName(block) or "-", block and invCount(block) or 0),
+                ("Break  : %s | tile %d"):format(Pabrik.BreakX >= 0 and ("(" .. Pabrik.BreakX .. "," .. Pabrik.BreakY .. ")")
+                    or "belum diatur", countKeys(Pabrik.Tiles)),
+                ("Drop   : %s | sisakan %d, drop saat >= %d"):format(Pabrik.Drop and dropAt or "mati", Pabrik.Keep, Pabrik.DropAt),
+                ("Hasil  : panen %d | tanam %d | di-drop %d"):format(Pabrik.Harvested, Pabrik.Planted, Pabrik.Dropped),
+                "Aksi   : " .. Pabrik.Status,
+            }, "\n")
+            if UI.PabrikStatus and txt ~= Pabrik.Shown then
+                Pabrik.Shown = txt
+                pcall(function() UI.PabrikStatus:SetDesc(txt) end)
+            end
+            -- tombol START di Grid (mode pabrik)
+            if UI.GridMode == "pabrik" and UI.GridStart then
+                UI.GridStart.Text = I18N.T(Pabrik.Running and "STOP PABRIK" or "START PABRIK")
+                UI.GridStart.BackgroundColor3 = Pabrik.Running and Color3.fromRGB(200, 60, 60) or Color3.fromRGB(46, 160, 90)
+            end
+            task.wait(1)
+        end
+    end)
+end)() end
+
+---------------------------------------------------------------------
+-- AUTO RECONNECT
+---------------------------------------------------------------------
+-- Cara kerja:
+--   Terlempar dari world (event WorldClosed dari server):
+--     catat aktivitas -> tunggu -> masuk world yang sama lagi -> lanjut aktivitas.
+--   Disconnect dari server Roblox (layar error muncul):
+--     catat aktivitas ke file -> teleport ulang ke game dengan data world
+--     (game otomatis masuk world itu) -> script jalan lagi -> lanjut aktivitas.
+--     Supaya script jalan lagi setelah teleport: isi URL script (queue_on_teleport)
+--     atau taruh script di folder autoexec executor.
+local Rejoin = {
+    On = false,
+    World = true,       -- masuk lagi kalau terlempar dari world
+    Server = true,      -- rejoin kalau disconnect dari server
+    DelaySec = 5,
+    ScriptUrl = "",
+    Keep = false,       -- selalu kembali ke world tujuan kalau berada di luar world
+    Target = "",        -- world tujuan (kosong = world terakhir)
+    LastWorld = "",     -- world terakhir yang dimasuki
+    Last = nil,         -- catatan aktivitas terakhir
+    LastAt = 0,
+    Busy = false,
+    Count = 0,
+    Status = "-",
+}
+
+do (function()
+    local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local GuiService = game:GetService("GuiService")
+    local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
+    local PENDING = "Fian/rejoin_" .. tostring(LocalPlayer.UserId) .. ".json"
+
+    -- catat aktivitas selagi masih jalan
+    task.spawn(function()
+        while alive() do
+            local now = os.clock()
+            local wn = Guard.worldName and Guard.worldName() or ""
+            if wn ~= "" and not Pabrik.Traveling then Rejoin.LastWorld = wn end
+            if Guard.anyRunning and Guard.anyRunning() and Guard.Mode == "idle" then
+                Rejoin.Last = Guard.snapshot()
+                Rejoin.LastAt = now
+            elseif now - Rejoin.LastAt > 3 and Guard.Mode == "idle" and wn ~= "" then
+                -- masih di world tapi aktivitas dihentikan sendiri: jangan dilanjutkan
+                Rejoin.Last = nil
+            end
             task.wait(1)
         end
     end)
 
-    local close = MakeButton(header, "×", "danger", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -12, 0.5, 0),
-        Size = UDim2.fromOffset(32, 32),
-        TextSize = 20,
-        Font = Enum.Font.GothamBold,
-    })
-    close.MouseButton1Click:Connect(CloseHub)
+    local function resume(saved, reason)
+        Guard.afterEnter()
+        Rejoin.Count += 1
+        Rejoin.Status = "Masuk lagi berhasil, lanjut aktivitas"
+        notify("Auto Reconnect", reason .. ": lanjut aktivitas", 4)
+        Hook.send("rejoin", reason .. " ke " .. tostring(saved.world) .. ", aktivitas dilanjutkan")
+        Guard.resumeSaved(saved)
+    end
 
-    local minimize = MakeButton(header, "−", "ghost", {
-        AnchorPoint = Vector2.new(1, 0.5),
-        Position = UDim2.new(1, -52, 0.5, 0),
-        Size = UDim2.fromOffset(32, 32),
-        TextSize = 18,
-        Font = Enum.Font.GothamBold,
-    })
+    -- ===== terlempar dari world =====
+    local function onWorldClosed(msg)
+        if not (Rejoin.On and Rejoin.World) or Rejoin.Busy or Pabrik.Traveling then return end
+        if Guard.Mode == "away" or Guard.Mode == "out" then return end -- Penjaga yang keluar
+        local saved = Rejoin.Last
+        if not saved or saved.world == "" or os.clock() - Rejoin.LastAt > 10 then return end
+        Rejoin.Busy = true
+        task.spawn(function()
+            Guard.stopAll()
+            local text = tostring(msg or ""):gsub("`.", "")
+            Rejoin.Status = "Terlempar dari " .. saved.world .. ". Masuk lagi..."
+            Hook.send("rejoin", "Terlempar dari world " .. saved.world .. (text ~= "" and (" (" .. text .. ")") or ""))
+            task.wait(Rejoin.DelaySec + 1.5) -- tunggu animasi pintu selesai
+            for try = 1, 3 do
+                if not (alive() and Rejoin.On) then break end
+                local ok, err = Guard.enterWorld(saved.world)
+                if ok then
+                    task.wait(1.5)
+                    resume(saved, "Masuk lagi")
+                    Rejoin.Busy = false
+                    return
+                end
+                Rejoin.Status = ("Gagal masuk (%d/3): %s"):format(try, tostring(err))
+                task.wait(10)
+            end
+            Rejoin.Status = "Gagal masuk lagi ke " .. saved.world
+            notify("Auto Reconnect", Rejoin.Status, 5)
+            Hook.send("rejoin", Rejoin.Status)
+            Rejoin.Busy = false
+        end)
+    end
 
-    local accentLine = New("Frame", {
-        Position = UDim2.fromOffset(0, 59),
-        Size = UDim2.new(1, 0, 0, 2),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        BorderSizePixel = 0,
-    }, frame)
-    UI.Gradient(accentLine, C.accent, C.accent2, 0)
+    local closed = WorldRemotes:FindFirstChild("WorldClosed")
+    if closed and closed:IsA("RemoteEvent") then
+        table.insert(Connections, closed.OnClientEvent:Connect(function(msg)
+            if alive() then onWorldClosed(msg) end
+        end))
+    end
 
-    MakeDraggable(header, frame)
+    -- ===== rejoin manual & selalu kembali ke world =====
+    -- Cara kerja:
+    --   Rejoin manual : catat aktivitas -> keluar world -> masuk lagi -> lanjut aktivitas.
+    --   Selalu kembali: tiap 2 detik cek, kalau kamu di luar world (layar pilih world)
+    --                   lebih lama dari jeda -> masuk ke world tujuan -> lanjut aktivitas.
+    function Rejoin.targetWorld()
+        local t = tostring(Rejoin.Target or ""):upper():gsub("[^A-Z0-9]", "")
+        if t ~= "" then return t end
+        return Rejoin.LastWorld or ""
+    end
 
-    -- Sidebar ------------------------------------------------------
-    local sidebar = New("ScrollingFrame", {
-        Name = "Navigation",
-        Position = UDim2.fromOffset(10, 72),
-        Size = UDim2.new(0, sidebarWidth - 10, 1, -84),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        ScrollBarThickness = 2,
-        ScrollBarImageColor3 = C.accent,
-        CanvasSize = UDim2.new(),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    }, frame)
-    Corner(sidebar, 14)
-    Stroke(sidebar, C.stroke, 1, 0.6)
-    New("UIPadding", {
-        PaddingTop = UDim.new(0, 8),
-        PaddingBottom = UDim.new(0, 8),
-        PaddingLeft = UDim.new(0, 6),
-        PaddingRight = UDim.new(0, 6),
-    }, sidebar)
-    New("UIListLayout", {
-        Padding = UDim.new(0, 4),
-        SortOrder = Enum.SortOrder.LayoutOrder,
-    }, sidebar)
-
-    -- Panel konten -------------------------------------------------
-    local panel = New("Frame", {
-        Name = "Content",
-        Position = UDim2.fromOffset(sidebarWidth + 8, 72),
-        Size = UDim2.new(1, -(sidebarWidth + 18), 1, -84),
-        BackgroundColor3 = C.panel,
-        BorderSizePixel = 0,
-        ClipsDescendants = true,
-    }, frame)
-    Corner(panel, 14)
-    Stroke(panel, C.stroke, 1, 0.45)
-
-    hub.title = Label(panel, {
-        Position = UDim2.fromOffset(16, 0),
-        Size = UDim2.new(1, -32, 0, 46),
-        Text = "Fitur",
-        TextSize = 16,
-        Font = Enum.Font.GothamBold,
-        TextWrapped = false,
-    })
-    local sep = New("Frame", {
-        Position = UDim2.fromOffset(12, 45),
-        Size = UDim2.new(1, -24, 0, 1),
-        BackgroundColor3 = C.stroke,
-        BackgroundTransparency = 0.5,
-        BorderSizePixel = 0,
-    }, panel)
-
-    minimize.MouseButton1Click:Connect(function()
-        hub.minimized = not hub.minimized
-        sidebar.Visible = not hub.minimized
-        panel.Visible = not hub.minimized
-        accentLine.Visible = not hub.minimized
-        minimize.Text = hub.minimized and "+" or "−"
-        Tween(frame, 0.2, {
-            Size = UDim2.fromOffset(width, hub.minimized and 60 or height),
-        }, Enum.EasingStyle.Quint)
-    end)
-
-    for index, tab in ipairs(TAB_ORDER) do
-        local button = New("TextButton", {
-            Name = "Tab_" .. tab.id,
-            Size = UDim2.new(1, 0, 0, 38),
-            BackgroundColor3 = C.accent,
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            AutoButtonColor = false,
-            Text = "",
-            LayoutOrder = index,
-        }, sidebar)
-        Corner(button, 10)
-
-        local marker = New("Frame", {
-            Position = UDim2.new(0, -3, 0.5, -10),
-            Size = UDim2.fromOffset(3, 20),
-            BackgroundColor3 = C.accent,
-            BorderSizePixel = 0,
-            Visible = false,
-        }, button)
-        Corner(marker, 2)
-
-        local badge = New("Frame", {
-            AnchorPoint = Vector2.new(0, 0.5),
-            Position = hub.narrow and UDim2.new(0.5, -14, 0.5, 0) or UDim2.new(0, 7, 0.5, 0),
-            Size = UDim2.fromOffset(28, 28),
-            BackgroundColor3 = C.cardHi,
-            BorderSizePixel = 0,
-        }, button)
-        Corner(badge, 8)
-        Label(badge, {
-            Text = tab.icon,
-            Size = UDim2.fromScale(1, 1),
-            TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 11,
-            Font = Enum.Font.GothamBold,
-            TextXAlignment = Enum.TextXAlignment.Center,
-            TextWrapped = false,
-        })
-
-        local tabLabel = nil
-        if not hub.narrow then
-            tabLabel = Label(button, {
-                Text = tab.label,
-                Position = UDim2.fromOffset(42, 0),
-                Size = UDim2.new(1, -46, 1, 0),
-                TextColor3 = C.mute,
-                TextSize = 12,
-                Font = Enum.Font.GothamSemibold,
-                TextWrapped = false,
-            })
+    local function enterAndResume(world, saved, reason)
+        for try = 1, 3 do
+            if not alive() then return false end
+            local ok, err = Guard.enterWorld(world)
+            if ok then
+                task.wait(1.5)
+                if saved and saved.world == world then
+                    resume(saved, reason)
+                else
+                    Guard.afterEnter()
+                    Rejoin.Count += 1
+                    Rejoin.Status = reason .. " ke " .. world .. " berhasil"
+                    Hook.send("rejoin", reason .. " ke " .. world)
+                end
+                return true
+            end
+            Rejoin.Status = ("Gagal masuk %s (%d/3): %s"):format(world, try, tostring(err))
+            task.wait(8)
         end
-
-        button.MouseEnter:Connect(function()
-            if hub.active ~= tab.id then
-                Tween(button, 0.1, { BackgroundTransparency = 0.92 })
-            end
-        end)
-        button.MouseLeave:Connect(function()
-            if hub.active ~= tab.id then
-                Tween(button, 0.1, { BackgroundTransparency = 1 })
-            end
-        end)
-        button.MouseButton1Click:Connect(function()
-            SwitchTab(tab.id)
-        end)
-
-        hub.tabs[tab.id] = { button = button, label = tabLabel, bar = marker, badge = badge }
-
-        local page = New("ScrollingFrame", {
-            Name = "Page_" .. tab.id,
-            Position = UDim2.fromOffset(0, 46),
-            Size = UDim2.new(1, 0, 1, -46),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-            ScrollBarThickness = 3,
-            ScrollBarImageColor3 = C.accent,
-            CanvasSize = UDim2.new(),
-            AutomaticCanvasSize = Enum.AutomaticSize.Y,
-            Visible = false,
-        }, panel)
-        New("UIListLayout", {
-            Padding = UDim.new(0, 8),
-            SortOrder = Enum.SortOrder.LayoutOrder,
-        }, page)
-        New("UIPadding", {
-            PaddingLeft = UDim.new(0, 12),
-            PaddingRight = UDim.new(0, 14),
-            PaddingTop = UDim.new(0, 10),
-            PaddingBottom = UDim.new(0, 14),
-        }, page)
-        hub.pages[tab.id] = page
+        notify("Auto Rejoin", "Gagal masuk " .. world, 5)
+        Hook.send("rejoin", "Gagal masuk " .. world)
+        return false
     end
 
-    SwitchTab(tabId or "features")
-end
-
-local function ToggleHub(tabId)
-    if hub.frame and not hub.frame.Parent then
-        hub.frame = nil
-        hub.active = nil
-        hub.scale = nil
-    end
-    if hub.frame and hub.active == tabId then
-        CloseHub()
-    else
-        OpenHub(tabId)
-    end
-end
-
--- Launcher P: bisa digeser, klik biasa untuk buka/tutup
-local function BuildLauncher()
-    local guiRoot = GetGui()
-    local oldLauncher = guiRoot:FindFirstChild("Launcher")
-    if oldLauncher then
-        oldLauncher:Destroy()
-    end
-
-    local button = New("TextButton", {
-        Name = "Launcher",
-        Size = UDim2.fromOffset(50, 50),
-        Position = UDim2.new(0, 14, 0.5, -25),
-        BackgroundColor3 = Color3.new(1, 1, 1),
-        BorderSizePixel = 0,
-        AutoButtonColor = false,
-        Text = "P",
-        TextColor3 = Color3.new(1, 1, 1),
-        Font = Enum.Font.GothamBlack,
-        TextSize = 22,
-        Visible = Config.launcher,
-        ZIndex = 50,
-    }, guiRoot)
-    Corner(button, 25)
-    UI.Gradient(button, C.accent, C.accent2, 45)
-    Stroke(button, Color3.new(1, 1, 1), 1.5, 0.6)
-    local scale = New("UIScale", { Scale = 1 }, button)
-    hub.launcher = button
-
-    local drag = MakeDraggable(button, button)
-
-    button.MouseEnter:Connect(function()
-        Tween(scale, 0.12, { Scale = 1.1 }, Enum.EasingStyle.Back)
-    end)
-    button.MouseLeave:Connect(function()
-        Tween(scale, 0.12, { Scale = 1 })
-    end)
-    button.Activated:Connect(function()
-        if drag.moved then
+    function Rejoin.now()
+        if Rejoin.Busy then
+            notify("Auto Rejoin", "Sedang proses masuk world, tunggu dulu", 3)
             return
         end
-        if hub.frame and hub.frame.Parent then
-            CloseHub()
-        else
-            hub.frame = nil
-            OpenHub("features")
+        local world = Rejoin.targetWorld()
+        if world == "" then
+            notify("Auto Rejoin", "World tujuan belum ada. Isi 'World tujuan' atau masuk world dulu", 4)
+            return
         end
-    end)
-end
-
-----------------------------------------------------------------------
--- PERINTAH TAMBAHAN: GrowScan & pencarian ID
-----------------------------------------------------------------------
-local function OpenGrowScan()
-    if not OpenNativeGrowScan() then
-        ToggleHub("scan")
-    end
-end
-
-local function ShowItemIds(query)
-    if Trim(query) == "" then
-        Notify("Contoh: " .. Config.prefix .. "blockid dirt")
-        return
-    end
-    local found = SearchItems(query, 5)
-    if #found == 0 then
-        Notify("Block '" .. query .. "' tidak ditemukan.")
-        return
-    end
-    local parts = {}
-    for _, entry in ipairs(found) do
-        table.insert(parts, entry.name .. " = " .. entry.id)
-    end
-    Notify(table.concat(parts, " | "))
-end
-
-----------------------------------------------------------------------
--- COMMAND HANDLER
-----------------------------------------------------------------------
-local function ParseCommand(text)
-    text = Trim(text)
-    if text == "" then
-        return nil
-    end
-
-    local prefix = Config.prefix
-    local bodyText
-
-    if prefix == "" then
-        bodyText = text
-    elseif text:sub(1, #prefix) == prefix then
-        bodyText = text:sub(#prefix + 1)
-    elseif text:sub(1, 1) == "/" then
-        -- Pengaman: settings tetap bisa dibuka dengan "/" walau prefix diganti
-        local word = text:sub(2):lower()
-        if word == "settingsgb" or word == "sgb" then
-            bodyText = text:sub(2)
-        end
-    end
-
-    if not bodyText then
-        return nil
-    end
-
-    local command, args = bodyText:match("^(%S+)%s*(.-)%s*$")
-    if not command then
-        return nil
-    end
-    return command:lower(), (args or ""):lower(), (args or "")
-end
-
--- Argumen "on"/"off" eksplisit, tanpa argumen = toggle
-local function WantedState(args, current)
-    if args == "on" then
-        return true
-    elseif args == "off" then
-        return false
-    end
-    return not current
-end
-
-local function HandleMessage(text)
-    local command, args, rawArgs = ParseCommand(text)
-    if not command then
-        return false
-    end
-
-    if command == "wld" or command == "wd" then
-        local amount = tonumber(args:match("^(%d+)$"))
-        if not amount or amount < 1 or amount > MAX_AMOUNT then
-            Notify("Jumlah tidak valid! Contoh: " .. Config.prefix .. command .. " 100")
-        else
-            task.spawn(DropWorldLock, amount)
-        end
-        return true
-
-    elseif command == "tp" or command == "warp" then
-        task.spawn(WarpToWorld, args)
-        return true
-
-    elseif command == "pos1" or command == "pos2" then
-        SetPos(tonumber(command:sub(4)))
-        RefreshHub()
-        return true
-
-    elseif command == "pos" then
-        ShowPos()
-        return true
-
-    elseif command == "win1" or command == "w1" or command == "win2" or command == "w2" then
-        local slot = tonumber(command:match("%d$"))
-        local amount = tonumber(args:match("^(%d+)$"))
-        if amount and (amount < 1 or amount > MAX_AMOUNT) then
-            Notify("Jumlah tidak valid!")
-        else
-            task.spawn(GoToPos, slot, amount)
-        end
-        return true
-
-    elseif command == "rejoin" or command == "rj" then
-        task.spawn(Rejoin)
-        return true
-
-    elseif command == "noclip" then
-        SetFeature("noclip", WantedState(args, noclipOn))
-        return true
-
-    elseif command == "unlimitedjump" or command == "uj" or command == "ujump" or command == "infjump" then
-        SetFeature("ujump", WantedState(args, ujumpOn))
-        return true
-
-    elseif command == "afk" or command == "antiafk" then
-        SetFeature("antiafk", WantedState(args, antiAfkOn))
-        return true
-
-    elseif command == "autorejoin" or command == "arj" then
-        SetFeature("autorejoin", WantedState(args, arjOn))
-        return true
-
-    elseif command == "session" or command == "sesi" then
-        ToggleHub("session")
-        return true
-
-    elseif command == "blink" then
-        SetFeature("blink", WantedState(args, blinkOn))
-        return true
-
-    elseif command == "longhand" or command == "lh" then
-        local value = tonumber(args)
-        if value and value >= 1 and value <= 20 then
-            Config.longhandRange = value
-            SaveConfig()
-            SetFeature("longhand", true)
-        else
-            SetFeature("longhand", WantedState(args, longhandOn))
-        end
-        return true
-
-    elseif command == "visualitem" or command == "vi" then
-        ToggleHub("visual")
-        return true
-
-    elseif command == "settingsgb" or command == "sgb" then
-        ToggleHub("settings")
-        return true
-
-    elseif command == "autofarm" or command == "af" then
-        if args == "on" or args == "start" then
-            SetFeature("autofarm", true)
-        elseif args == "off" or args == "stop" then
-            SetFeature("autofarm", false)
-        else
-            ToggleHub("farm")
-        end
-        return true
-
-    elseif command == "clicktp" or command == "ctp" then
-        SetFeature("clicktp", WantedState(args, Nav.clickOn))
-        return true
-
-    elseif command == "move" or command == "mv" or command == "mode" then
-        local m = (args or ""):lower()
-        local map = { walk = "walk", jalan = "walk", tp = "tp", teleport = "tp", fly = "fly", terbang = "fly", mix = "mix", campur = "mix" }
-        if map[m] then
-            Config.moveMode = map[m]
-            SaveConfig()
-            Notify("Mode gerak: " .. map[m])
-        else
-            Notify("Mode gerak sekarang: " .. tostring(Config.moveMode) .. ". Pakai: move walk | tp | fly | mix")
-        end
-        return true
-
-    elseif command == "hiddenname" or command == "hn" then
-        local map = { off = "off", mati = "off", self = "self", sendiri = "self", all = "all", semua = "all" }
-        if map[args] then
-            HiddenName.SetMode(map[args])
-        else
-            ToggleHub("hidden")
-        end
-        return true
-
-    elseif command == "breakid" or command == "bid2" or command == "autobreak" then
-        if args == "off" then
-            SetFeature("breakid", false)
-        elseif Trim(rawArgs or "") ~= "" then
-            SetFeature("breakid", false) -- hentikan sesi lama sebelum ganti ID
-            BreakId.Start(rawArgs)
-            if RefreshHub then RefreshHub() end
-        else
-            SetFeature("breakid", WantedState(args, BreakId.on))
-        end
-        return true
-
-    elseif command == "spam" then
-        SetFeature("spam", WantedState(args, Spam.on))
-        return true
-
-    elseif command == "setspam" then
-        if Trim(rawArgs or "") == "" then
-            local now = Trim(Config.spamText or "")
-            Notify("Contoh: " .. Config.prefix .. "setspam Halo semua!   (sekarang: "
-                .. (now ~= "" and now or "kosong") .. ")")
-        else
-            Spam.SetText(rawArgs)
-        end
-        return true
-
-    elseif command == "acpunch" or command == "punch" then
-        local n = tonumber(args)
-        if n and n >= 1 and n <= 3 then
-            Config.clearPunch = math.floor(n)
-            SaveConfig()
-            Notify("Punch Auto Clear: " .. Config.clearPunch .. " block")
-        else
-            Notify("Punch Auto Clear sekarang: " .. tostring(Config.clearPunch) .. " block. Pakai: acpunch 1 | 2 | 3")
-        end
-        if RefreshHub then RefreshHub() end
-        return true
-
-    elseif command == "dirtfarm" or command == "df" or command == "dirt" then
-        if args == "on" or args == "start" then
-            SetFeature("dirtfarm", true)
-        elseif args == "off" or args == "stop" then
-            SetFeature("dirtfarm", false)
-        else
-            ToggleHub("dirt")
-        end
-        return true
-
-    elseif command == "dirtid" then
-        local query = Trim(rawArgs or "")
-        if query == "" then
-            local id = DirtFarm.ResolveId and DirtFarm.ResolveId()
-            Notify("Block dirt sekarang: " .. (id and (ItemName(id) .. " (ID " .. id .. ")") or "belum ketemu")
-                .. ". Pakai: " .. Config.prefix .. "dirtid <id atau nama>")
-        else
-            local found = SearchItems(query, 1)[1]
-            if found then
-                Config.dirtId = found.id
-                SaveConfig()
-                Notify("Block dirt: " .. found.name .. " (ID " .. found.id .. ")")
-            else
-                Notify("Block tidak ditemukan: " .. query)
-            end
-        end
-        return true
-
-    elseif command == "acmode" or command == "clearmode" then
-        local m = (args or ""):lower()
-        local map = { walk = "walk", jalan = "walk", tp = "teleport", teleport = "teleport" }
-        if map[m] then
-            Config.clearMode = map[m]
-            SaveConfig()
-            Notify("Mode Auto Clear: " .. map[m])
-        else
-            Notify("Mode Auto Clear sekarang: " .. tostring(Config.clearMode) .. ". Pakai: acmode walk | tp")
-        end
-        return true
-
-    elseif command == "autoclear" or command == "ac" or command == "clear" then
-        if args == "on" or args == "start" then
-            SetFeature("autoclear", true)
-        elseif args == "off" or args == "stop" then
-            SetFeature("autoclear", false)
-        else
-            ToggleHub("clear")
-        end
-        return true
-
-    elseif command == "autoquest" or command == "aq" then
-        if args == "scan" then
-            task.spawn(QuestReport)
-        else
-            SetFeature("autoquest", WantedState(args, questOn))
-        end
-        return true
-
-    elseif command == "growscan" or command == "gs" then
-        task.spawn(OpenGrowScan)
-        return true
-
-    elseif command == "god" or command == "godmode" then
-        SetFeature("god", WantedState(args, godOn))
-        return true
-
-    elseif command == "blockid" or command == "bid" then
-        ShowItemIds(args)
-        return true
-
-    elseif command == "hpx" then
-        ToggleHub("help")
-        return true
-    end
-
-    return false
-end
-
-----------------------------------------------------------------------
--- DETEKSI CHAT
--- Chat GrowBlox pakai UI sendiri, jadi hook semua TextBox + Player.Chatted.
--- Pesan identik dalam 1.5 detik dianggap event ganda.
-----------------------------------------------------------------------
-local hooked = {}
-local lastMessage = nil
-local lastHandled = 0
-local DEDUPE_WINDOW = 1.5
-
-local function Process(text)
-    if type(text) ~= "string" then
-        return
-    end
-
-    local normalized = Trim(text):lower()
-    -- pesan yang baru dikirim oleh fitur Spam bukan command
-    if Spam.guardText and normalized == Spam.guardText and os.clock() - Spam.guardT < 5 then
-        return
-    end
-    if normalized == lastMessage and os.clock() - lastHandled < DEDUPE_WINDOW then
-        return
-    end
-
-    if HandleMessage(Trim(text)) then
-        lastMessage = normalized
-        lastHandled = os.clock()
-    end
-end
-
-local function HookTextBox(box)
-    if hooked[box] or not box:IsA("TextBox") then
-        return
-    end
-    -- Jangan hook TextBox milik GUI Peex sendiri
-    if rootGui and box:IsDescendantOf(rootGui) then
-        return
-    end
-    hooked[box] = true
-
-    local lastText = ""
-
-    box:GetPropertyChangedSignal("Text"):Connect(function()
-        if box.Text ~= "" then
-            lastText = box.Text
-        end
-    end)
-
-    box.FocusLost:Connect(function(enterPressed)
-        if enterPressed then
-            local text = box.Text ~= "" and box.Text or lastText
-            lastText = ""
-            -- command yang diketik lewat kotak ini = kotak chat game (dipakai fitur Spam)
-            local trimmed = Trim(text)
-            if trimmed ~= "" and ((Config.prefix ~= "" and trimmed:sub(1, #Config.prefix) == Config.prefix)
-                or trimmed:sub(1, 1) == "/") then
-                if not Spam.guardText or trimmed:lower() ~= Spam.guardText then
-                    Spam.chatBox = box
+        Rejoin.Busy = true
+        task.spawn(function()
+            local saved = nil
+            if Guard.worldName() ~= "" then
+                if Guard.anyRunning() then saved = Guard.snapshot() end
+                Guard.stopAll()
+                Rejoin.Status = "Keluar world..."
+                if not Guard.leaveWorld() then
+                    Rejoin.Status = "Gagal keluar world"
+                    notify("Auto Rejoin", Rejoin.Status, 4)
+                    Rejoin.Busy = false
+                    return
                 end
+                task.wait(math.max(2, Rejoin.DelaySec))
             end
-            Process(text)
-        end
-    end)
-end
-
-for _, descendant in ipairs(PlayerGui:GetDescendants()) do
-    HookTextBox(descendant)
-end
-PlayerGui.DescendantAdded:Connect(HookTextBox)
-
-Player.Chatted:Connect(Process)
-
--- Launcher + menu: error GUI muncul sebagai notifikasi (tidak hilang diam-diam)
-do
-    local function ShowError(where, err)
-        warn("[PeexHub] " .. where .. ": " .. tostring(err))
-        pcall(function()
-            StarterGui:SetCore("SendNotification", {
-                Title = "Peex HUB error",
-                Text = where .. ": " .. tostring(err):sub(1, 160),
-                Duration = 10,
-            })
+            if saved and saved.world ~= world then saved = nil end -- world lain: aktivitas tidak dilanjutkan
+            Rejoin.Status = "Masuk ke " .. world .. "..."
+            enterAndResume(world, saved, "Rejoin")
+            Rejoin.Busy = false
         end)
     end
 
-    local okLauncher, errLauncher = pcall(BuildLauncher)
-    if not okLauncher then
-        ShowError("Launcher", errLauncher)
-    end
-
-    task.defer(function()
-        local okOpen, errOpen = pcall(OpenHub, "features")
-        if not okOpen then
-            ShowError("Menu", errOpen)
+    task.spawn(function()
+        local outSince = nil
+        while alive() do
+            task.wait(2)
+            local out = Guard.worldName() == ""
+            local free = Rejoin.On and Rejoin.Keep and not Rejoin.Busy and not Rejoin.Leaving and not Pabrik.Traveling
+                and Guard.Mode == "idle"
+            if not (out and free) then
+                outSince = nil
+            else
+                outSince = outSince or os.clock()
+                local world = Rejoin.targetWorld()
+                if world ~= "" and os.clock() - outSince >= Rejoin.DelaySec then
+                    outSince = nil
+                    Rejoin.Busy = true
+                    local saved = Rejoin.Last
+                    if saved and (saved.world ~= world or os.clock() - Rejoin.LastAt > 600) then saved = nil end
+                    Rejoin.Status = "Di luar world, masuk ke " .. world .. "..."
+                    enterAndResume(world, saved, "Kembali otomatis")
+                    Rejoin.Busy = false
+                end
+            end
         end
     end)
+
+    -- ===== disconnect dari server =====
+    local function queueScript()
+        local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+        local url = tostring(Rejoin.ScriptUrl or "")
+        if type(q) == "function" and string.sub(url, 1, 8) == "https://" then
+            pcall(q, ("loadstring(game:HttpGet(%q))()"):format(url))
+            return true
+        end
+        return false
+    end
+
+    local function onDisconnect(msg)
+        if not (Rejoin.On and Rejoin.Server) or Rejoin.Leaving then return end
+        Rejoin.Leaving = true
+        local saved = Rejoin.Last or (Guard.anyRunning() and Guard.snapshot()) or nil
+        local world = saved and saved.world or Guard.worldName()
+        if canFile and saved then
+            local data = {
+                world = saved.world, farm = saved.farm, clear = saved.clear, farmer = saved.farmer,
+                spam = saved.spam, splice = saved.splice, pabrik = saved.pabrik, build = saved.build,
+                tx = saved.tx, ty = saved.ty, at = os.time(),
+            }
+            pcall(function() writefile(PENDING, HttpService:JSONEncode(data)) end)
+        end
+        local queued = queueScript()
+        Rejoin.Status = "Disconnect: rejoin..." .. (queued and "" or " (script tidak di-queue)")
+        Hook.send("rejoin", "Disconnect dari server (" .. tostring(msg) .. "). Rejoin ke " .. (world ~= "" and world or "game"))
+        task.spawn(function()
+            task.wait(Rejoin.DelaySec)
+            while alive() do
+                pcall(function()
+                    TeleportService:Teleport(game.PlaceId, LocalPlayer, (world ~= "") and { world = world } or nil)
+                end)
+                task.wait(15) -- belum pindah: coba lagi
+            end
+        end)
+    end
+
+    pcall(function()
+        table.insert(Connections, GuiService.ErrorMessageChanged:Connect(function(msg)
+            if alive() and type(msg) == "string" and msg ~= "" then onDisconnect(msg) end
+        end))
+    end)
+
+    -- ===== setelah execute: lanjutkan dari catatan rejoin =====
+    function Rejoin.startup(reconnectFn)
+        if not canFile then return end
+        local okE, has = pcall(isfile, PENDING)
+        if not okE or not has then return end
+        local okR, raw = pcall(readfile, PENDING)
+        if type(delfile) == "function" then pcall(delfile, PENDING) end
+        if not okR or type(raw) ~= "string" then return end
+        local okD, saved = pcall(HttpService.JSONDecode, HttpService, raw)
+        if not okD or type(saved) ~= "table" or type(saved.world) ~= "string" or saved.world == "" then return end
+        if os.time() - (tonumber(saved.at) or 0) > 15 * 60 then return end -- terlalu lama
+        Rejoin.Busy = true
+        Rejoin.Status = "Rejoin: menunggu masuk " .. saved.world
+        -- tunggu game masuk world (lewat data teleport); kalau tidak, masuk sendiri
+        local t0 = os.clock()
+        local tried = false
+        while alive() and os.clock() - t0 < 60 do
+            if Refs.World and Guard.worldName() == saved.world and Auto.here() then break end
+            if not Refs.World then pcall(reconnectFn) end
+            if Refs.World and not tried and os.clock() - t0 > 12 then
+                tried = true
+                Guard.enterWorld(saved.world)
+            end
+            task.wait(2)
+        end
+        if alive() and Guard.worldName() == saved.world then
+            pcall(reconnectFn)
+            task.wait(1)
+            resume(saved, "Rejoin server")
+        else
+            Rejoin.Status = "Rejoin: gagal masuk " .. saved.world
+            Hook.send("rejoin", Rejoin.Status)
+        end
+        Rejoin.Busy = false
+    end
+end)() end
+
+Config.add("Reconnect", Rejoin, { "On", "World", "Server", "DelaySec", "ScriptUrl", "Keep", "Target" })
+Config.add("Discord", Hook, { "On", "Url", "Penjaga", "Stop", "Full", "Bonus", "Rejoin", "Pabrik", "ReportMin" })
+
+-- ===== TAB: KONEKSI =====
+local ConnTab = makeTab("Koneksi", "plug", "setel")
+
+safe(function()
+    UI.RefInfo = ConnTab:Paragraph({ Title = "Referensi game", Desc = "-" })
+end)
+
+Box.ConnMain = box(ConnTab, "Koneksi", true)
+Box.ConnCfg = box(ConnTab, "Config", true)
+Box.ConnCalib = box(ConnTab, "Koreksi posisi", false)
+Box.ConnLang = box(ConnTab, "Bahasa / Language", false)
+
+local function reconnect(show)
+    -- hentikan Clear / Farmer dulu
+    if Clear.Running then stopClear("Dihentikan: hubungkan ulang ke game") end
+    if Farmer.Running then stopFarmer("Dihentikan: hubungkan ulang ke game") end
+    Auto.resetReach()
+    findRefs()
+    findDropRefs()
+    Auto.findTreeRefs()
+    table.clear(DropFailUntil)
+    watchInventory()
+    refreshInvDropdown(true)
+    refreshRoles()
+    if State.LiteMode then setLite(true) end
+    if Misc.InfJump then hookJammer() end
+    pcall(function() UI.RefInfo:SetDesc(refsText()) end)
+    updateStatus()
+    if show then notify(show, refsText(), 5) end
 end
 
--- Pengaman: kalau setelah 2 detik tidak ada GUI sama sekali, bangun ulang
-task.delay(2, function()
-    local hasLauncher = hub.launcher and hub.launcher.Parent
-    local hasWindow = hub.frame and hub.frame.Parent
-    if not hasLauncher and not hasWindow then
-        rootGui = nil
-        pcall(BuildLauncher)
-        pcall(OpenHub, "features")
+safe(function()
+    Box.ConnMain:Button({
+        Title = "Hubungkan ke game",
+        Desc = "Pakai setelah pindah world",
+        Callback = function()
+            task.spawn(reconnect, "Koneksi")
+        end,
+    })
+end)
+
+safe(function()
+    UI.ConfigStatus = Box.ConnCfg:Paragraph({ Title = "Status", Desc = Config.Status })
+end)
+
+safe(function()
+    Box.ConnCfg:Toggle({
+        Title = "Auto Save Config",
+        Desc = "Simpan pengaturan otomatis, dimuat lagi saat execute",
+        Value = Config.AutoSave,
+        Callback = function(on)
+            Config.AutoSave = on
+            Config.save(true) -- simpan pilihan ini juga
+        end,
+    })
+end)
+
+safe(function()
+    Box.ConnCfg:Button({
+        Title = "Simpan config sekarang",
+        Callback = function()
+            local ok = Config.save(true)
+            notify("Config", ok and "Tersimpan" or Config.Status, 3)
+        end,
+    })
+end)
+
+safe(function()
+    Box.ConnCfg:Button({
+        Title = "Reset config (default)",
+        Desc = "Hapus file config, lalu execute ulang",
+        Callback = function()
+            Config.reset()
+            notify("Config", Config.Status, 4)
+        end,
+    })
+end)
+
+safe(function()
+    Box.ConnLang:Dropdown({
+        Title = "Bahasa / Language",
+        Desc = "Ganti bahasa, lalu execute ulang",
+        Values = { "Indonesia", "English" },
+        Value = I18N.Saved == "en" and "English" or "Indonesia",
+        Callback = function(v)
+            local lang = (v == "English") and "en" or "id"
+            if lang == I18N.Saved then return end
+            I18N.Saved = lang
+            Config.save(true)
+            notify("Bahasa / Language", "Execute ulang untuk ganti bahasa / Re-execute to apply", 5)
+        end,
+    })
+end)
+
+safe(function()
+    Box.ConnLang:Toggle({
+        Title = "Tanya bahasa saat execute",
+        Desc = "Munculkan pilihan bahasa tiap execute",
+        Value = I18N.Ask,
+        Callback = function(on) I18N.Ask = on end,
+    })
+end)
+
+safe(function()
+    Box.ConnCalib:Input({
+        Title = "Koreksi posisi X",
+        Desc = "Isi 1 / -1 kalau tile meleset",
+        Value = tostring(State.CalibX),
+        Callback = function(text) State.CalibX = tonumber(text) or 0 end,
+    })
+end)
+
+safe(function()
+    Box.ConnCalib:Input({
+        Title = "Koreksi posisi Y",
+        Value = tostring(State.CalibY),
+        Callback = function(text) State.CalibY = tonumber(text) or 0 end,
+    })
+end)
+
+-- ===== KONEKSI: AUTO RECONNECT =====
+do (function()
+    local rBox = box(ConnTab, "Auto Reconnect", false)
+
+    safe(function()
+        UI.RejoinStatus = rBox:Paragraph({ Title = "Status", Desc = Rejoin.Status })
+    end)
+
+    safe(function()
+        rBox:Toggle({
+            Title = "Auto Reconnect",
+            Desc = "Masuk lagi & lanjut aktivitas kalau terlempar",
+            Value = Rejoin.On,
+            Callback = function(on) Rejoin.On = on end,
+        })
+    end)
+
+    safe(function()
+        rBox:Toggle({
+            Title = "Terlempar dari world",
+            Desc = "World ditutup / di-kick: masuk lagi ke world yang sama",
+            Value = Rejoin.World,
+            Callback = function(on) Rejoin.World = on end,
+        })
+    end)
+
+    safe(function()
+        rBox:Toggle({
+            Title = "Selalu kembali ke world",
+            Desc = "Kalau berada di luar world (layar pilih world), masuk lagi otomatis",
+            Value = Rejoin.Keep,
+            Callback = function(on) Rejoin.Keep = on end,
+        })
+    end)
+
+    safe(function()
+        rBox:Input({
+            Title = "World tujuan",
+            Desc = "Kosongkan = world terakhir yang kamu masuki",
+            Value = Rejoin.Target,
+            Placeholder = "NAMAWORLD",
+            Callback = function(text) Rejoin.Target = tostring(text or "") end,
+        })
+    end)
+
+    safe(function()
+        rBox:Button({
+            Title = "Rejoin world sekarang",
+            Desc = "Keluar lalu masuk lagi, aktivitas dilanjutkan",
+            Callback = function() Rejoin.now() end,
+        })
+    end)
+
+    safe(function()
+        rBox:Toggle({
+            Title = "Disconnect dari server",
+            Desc = "Teleport ulang ke game lalu masuk world terakhir",
+            Value = Rejoin.Server,
+            Callback = function(on) Rejoin.Server = on end,
+        })
+    end)
+
+    addNumber(rBox, {
+        Title = "Jeda sebelum masuk lagi (detik)",
+        Min = 2, Max = 60, Step = 1, Default = Rejoin.DelaySec,
+        Callback = function(v) Rejoin.DelaySec = math.floor(v) end,
+    })
+
+    safe(function()
+        rBox:Input({
+            Title = "URL script (untuk rejoin server)",
+            Desc = "Link raw script ini, supaya jalan lagi setelah teleport. Kosong = pakai autoexec",
+            Value = Rejoin.ScriptUrl,
+            Placeholder = "https://...",
+            Callback = function(text)
+                Rejoin.ScriptUrl = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            end,
+        })
+    end)
+end)() end
+
+-- ===== TAB: DISCORD =====
+do (function()
+    local DcTab = makeTab("Discord", "bell", "setel")
+
+    safe(function()
+        UI.HookStatus = DcTab:Paragraph({ Title = "Status", Desc = Hook.Status })
+    end)
+
+    local dMain = box(DcTab, "Webhook", true)
+    local dWhat = box(DcTab, "Yang dikirim", false)
+
+    safe(function()
+        dMain:Toggle({
+            Title = "Notifikasi Discord",
+            Desc = "Kirim kabar penting ke channel Discord kamu",
+            Value = Hook.On,
+            Callback = function(on) Hook.On = on end,
+        })
+    end)
+
+    safe(function()
+        dMain:Input({
+            Title = "URL Webhook",
+            Desc = "Channel Discord > Edit > Integrasi > Webhook > Salin URL",
+            Value = Hook.Url,
+            Placeholder = "https://discord.com/api/webhooks/...",
+            Callback = function(text)
+                text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+                Hook.Url = text
+                if text ~= "" and not Hook.valid(text) then
+                    notify("Discord", "URL webhook tidak valid", 4)
+                end
+            end,
+        })
+    end)
+
+    safe(function()
+        dMain:Button({
+            Title = "Tes kirim",
+            Callback = function()
+                if not Hook.valid(Hook.Url) then
+                    notify("Discord", "Isi URL webhook dulu", 3)
+                    return
+                end
+                local was = Hook.On
+                Hook.On = true
+                Hook.send("test", "Tes notifikasi dari Fian792")
+                Hook.On = was
+                notify("Discord", "Pesan tes masuk antrian", 3)
+            end,
+        })
+    end)
+
+    addNumber(dMain, {
+        Title = "Laporan statistik (menit)",
+        Desc = "Kirim statistik sesi tiap X menit. 0 = mati",
+        Min = 0, Max = 180, Step = 5, Default = Hook.ReportMin,
+        Callback = function(v) Hook.ReportMin = math.floor(v) end,
+    })
+
+    for _, item in ipairs({
+        { "Penjaga", "Mod / Dev / pemain masuk world" },
+        { "Stop", "Aktivitas berhenti (block habis / error)" },
+        { "Full", "Inventori penuh" },
+        { "Bonus", "Quest diklaim / redeem berhasil" },
+        { "Rejoin", "Terlempar / disconnect / masuk lagi" },
+        { "Pabrik", "Pabrik drop seed / lahan selesai / berhenti" },
+    }) do
+        safe(function()
+            dWhat:Toggle({
+                Title = item[2],
+                Value = Hook[item[1]],
+                Callback = function(on) Hook[item[1]] = on end,
+            })
+        end)
     end
-end)
+end)() end
 
--- Auto-reload: antrekan skrip untuk server/world berikutnya
-pcall(QueueReload)
-Player.OnTeleport:Connect(function()
-    SaveConfig() -- sesi sudah tersimpan tiap fitur diubah
-    pcall(QueueReload)
-end)
 
--- Catat world terakhir
+---------------------------------------------------------------------
+-- INIT
+---------------------------------------------------------------------
 task.spawn(function()
-    while true do
-        task.wait(2)
-        local name = CurrentWorldName()
-        if name ~= "" and name ~= Config.lastWorld then
-            Config.lastWorld = name
-            SaveConfig()
+    reconnect("Fian792 v1.2")
+    -- Penjaga dari config dinyalakan setelah data pemain ketemu
+    -- (supaya pemain yang sudah ada dicatat dulu)
+    if Config.saved("Penjaga", "On") == true and alive() then
+        if UI.GuardToggle then pcall(function() UI.GuardToggle:Set(true) end) end
+        if not Guard.On then Guard.set(true) end
+    end
+    Config.start()
+    -- habis rejoin server: lanjutkan aktivitas sebelumnya
+    Rejoin.startup(reconnect)
+end)
+
+task.spawn(function()
+    while alive() do
+        if not State.Running then updateStatus() end
+        Auto.updateClearStatus()
+        Auto.updateFarmerStatus()
+        updateSpamStatus()
+        if UI.ConfigStatus and Config.Status ~= Config.Shown then
+            Config.Shown = Config.Status
+            pcall(function() UI.ConfigStatus:SetDesc(Config.Status) end)
         end
+        local rj = ("%s\nWorld tujuan: %s\nBerhasil masuk lagi: %d kali"):format(
+            Rejoin.Status, (Rejoin.targetWorld and Rejoin.targetWorld() ~= "") and Rejoin.targetWorld() or "-", Rejoin.Count)
+        if UI.RejoinStatus and rj ~= Rejoin.Shown then
+            Rejoin.Shown = rj
+            pcall(function() UI.RejoinStatus:SetDesc(rj) end)
+        end
+        local hk = ("%s\nAntrian: %d pesan"):format(Hook.Status, #Hook.Queue)
+        if UI.HookStatus and hk ~= Hook.Shown then
+            Hook.Shown = hk
+            pcall(function() UI.HookStatus:SetDesc(hk) end)
+        end
+        task.wait(1)
     end
 end)
 
-task.spawn(RestoreSession)
-
-if Config.autoReload and not ReloadReady() then
-    task.delay(3, function()
-        Notify("Auto-reload belum siap: simpan skrip sebagai " .. SCRIPT_FILE .. " di workspace atau isi URL di tab Sesi.")
-    end)
-end
-
-if FindInventory() then
-    Notify("Peex HUB v12 loaded! Tekan tombol P atau ketik " .. Config.prefix .. "hpx.")
-else
-    Notify("Loaded, tapi inventory game belum ditemukan (cek executor).")
+---------------------------------------------------------------------
+-- CLEANUP (otomatis saat script dijalankan ulang)
+---------------------------------------------------------------------
+Session.Cleanup = function()
+    State.Running = false
+    Clear.Running = false
+    Farmer.Running = false
+    Spam.On = false
+    if Config.AutoSave then pcall(Config.save, false) end -- simpan sebelum ditutup
+    Guard.On = false
+    Bonus.Quest, Bonus.Redeem = false, false
+    Scan.Auto = false
+    Splice.Running = false
+    Rejoin.On = false
+    Pabrik.Running = false
+    Build.Running = false
+    State.Override = nil
+    pcall(Auto.stopWalk)
+    AutoInput.active = false
+    pcall(Auto.releaseInput)
+    for _, c in ipairs(Connections) do pcall(function() c:Disconnect() end) end
+    -- kembalikan nama asli (watermark dilepas)
+    Misc.CustomName = false
+    pcall(nameRestore)
+    -- kembalikan fungsi game ke asal
+    pcall(setLite, false)
+    pcall(unhookJammer)
+    if OrigIsDown and MenuModOk and rawget(MenuModule, "isDown") == isDownWrapper then
+        MenuModule.isDown = OrigIsDown
+    end
+    if Refs.World then
+        if Misc.Ghost then pcall(function() Refs.World.ghost = false end) end
+        if Misc.Speed ~= 100 then pcall(function() Refs.World.speedScale = 1 end) end
+    end
+    pcall(function() GridGui:Destroy() end)
+    pcall(function() FlyPad:Destroy() end)
+    pcall(function() Window:Destroy() end)
 end
