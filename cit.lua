@@ -1,15 +1,58 @@
+-- Unpacked by ZeroVector: the script inside the packed file, as it was written
+--[[
+    Fian792  v1.4  (untuk Growblox versi ByteNet, game v1084+)
+    Script tester Growtopia (Roblox) dengan UI WindUI.
 
+    Fitur:
+      - Auto Farm   : place block di tile pilihan (Grid 5x5), lalu break (multi target / Rayman)
+      - Clear World : bersihkan world dari baris atas ke bawah, jalan pakai A*
+      - Farmer      : panen pohon yang sudah siap + tanam seed otomatis
+      - Auto Chat   : kirim beberapa pesan bergantian
+      - Misc        : walkspeed, infinite jump, fly
+      - Penjaga     : deteksi Mod / Dev / pemain masuk world -> diam / keluar world,
+                      lalu masuk lagi & lanjut aktivitas setelah aman
+      - Bonus       : auto claim quest & auto redeem code
+      - Growscan    : daftar Floating Items, World Blocks & pohon siap panen
+      - Splice      : tanam Seed A lalu splice Seed B, keliling world pakai A* (atau tile Grid)
+      - Lahan       : bangun farm world dari atas seperti ular (1 kosong per baris, tangga kiri & kanan,
+                      jumlah baris otomatis, tanpa pijakan), hitung & produksi block dulu
+      - Pabrik      : break -> tanam -> panen -> break, seed lebihan di-drop (bisa ke world lain)
+      - Titik Drop  : satu titik drop (bisa WORLD:ID) untuk Pabrik, Farmer (inventori hampir penuh)
+                      & Auto Farm (seed sudah banyak -> drop, balik ke posisi farm, lanjut)
+      - Tanam rapi  : semua fitur tanam menyelesaikan 1 baris dulu, dari kiri ke kanan
+      - Panen       : hasil panen diambil dulu sebelum pindah / tanam, yang jatuh jauh didatangi
+      - Statistik   : gems / block / drop per jam selama sesi
+      - Tas         : auto recycle item sampah & auto convert lock
+      - Discord     : notifikasi ke webhook (Penjaga, berhenti, penuh, bonus, laporan)
+      - Reconnect   : masuk lagi kalau terlempar / disconnect / di luar world, rejoin manual, lalu lanjut
+      - Config      : pengaturan tersimpan otomatis & dimuat saat execute
+      - Watermark   : nama Fian792 beranimasi (selalu aktif, hanya di layar sendiri)
+      - Bahasa      : pilih Indonesia / English saat execute (bisa diganti di tab Koneksi)
+
+    Catatan:
+      - Semua aksi pakai fungsi asli game (place, pukul, ambil drop), bukan klik layar.
+      - Auto collect cek tiap frame & ambil semua drop sekaligus (paralel).
+      - Server menolak fly / noclip / infinite jump, jadi Clear & Farmer selalu jalan menapak.
+        Kalau tidak ada pijakan, script menaruh block dari inventori.
+]]
+
+---------------------------------------------------------------------
+-- SESI: jalankan ulang script = sesi lama dibersihkan dulu
+---------------------------------------------------------------------
 local G = (getgenv and getgenv()) or _G
-for _, key in ipairs({ "__KzoyzOpus", "__GTFarm" }) do -- __GTFarm = nama versi lama
+for _, key in ipairs({ "__Alfian", "__GTFarm" }) do -- __GTFarm = nama versi lama
     if G[key] and G[key].Cleanup then pcall(G[key].Cleanup) end
     G[key] = nil
 end
 local Session = {}
-G.__KzoyzOpus = Session
+G.__Alfian = Session
 local function alive()
-    return G.__KzoyzOpus == Session
+    return G.__Alfian == Session
 end
 
+-- Pelaksana UI: dibuat paling awal, saat izin thread executor pasti masih penuh.
+-- Di sebagian executor, thread dari tombol / event / loop yang sudah lama jalan tidak boleh
+-- mengubah isi dropdown ("lacking capability Plugin"). Pekerjaan UI dijalankan lewat coroutine ini.
 do
     local getId = getthreadidentity or get_thread_identity or getidentity or (syn and syn.get_thread_identity)
     if type(getId) == "function" then pcall(function() Session.Ident = getId() end) end
@@ -97,7 +140,7 @@ local Misc = {
     UpHeld = false,   -- tombol ▲ di layar ditahan
     DownHeld = false, -- tombol ▼ di layar ditahan
     CustomName = true,          -- watermark nama (selalu aktif, mati hanya saat script ditutup)
-    NameText = "Kzoyz x Opus",  -- teks watermark
+    NameText = "Fian792",  -- teks watermark
 }
 
 -- Auto Clear World
@@ -331,7 +374,7 @@ function UI.runJobs()
         if job and now >= job.at then
             UI.Jobs[key] = nil
             local ok, err = pcall(job.fn)
-            if not ok then warn("[Kzoyz x Opus] UI job " .. tostring(key) .. ": " .. tostring(err)) end
+            if not ok then warn("[Fian792] UI job " .. tostring(key) .. ": " .. tostring(err)) end
         end
     end
 end
@@ -661,7 +704,7 @@ I18N.EN = {
     ["Isi URL webhook dulu"] = "Fill in the webhook URL first",
     ["Pesan tes masuk antrian"] = "Test message queued",
     ["URL webhook tidak valid"] = "Invalid webhook URL",
-    ["Tes notifikasi dari Kzoyz x Opus"] = "Test notification from Kzoyz x Opus",
+    ["Tes notifikasi dari Fian792"] = "Test notification from Fian792",
     -- pilihan dropdown
     ["Kiri → Kanan"] = "Left → Right", ["Semua pemain"] = "All players", ["Semua"] = "All",
     ["Depan"] = "Front", ["Break saja"] = "Break only", ["Place saja"] = "Place only",
@@ -1025,12 +1068,12 @@ end
 --      SEBELUM UI dibuat, jadi tombol & slider langsung tampil sesuai config.
 --   2. Tiap 3 detik pengaturan sekarang dibandingkan dengan yang terakhir disimpan.
 --      Ada yang berubah -> langsung disimpan (auto save).
---   3. File per akun: workspace/KzoyzOpus/config_<UserId>.json
+--   3. File per akun: workspace/Alfian/config_<UserId>.json
 --   Yang tidak disimpan: tombol jalan (Auto Farm / Clear / Farmer / Chat), fly & inf jump.
 local Config = {
     AutoSave = true,
     Paused = false,      -- true setelah reset (supaya file tidak dibuat lagi)
-    Folder = "KzoyzOpus",
+    Folder = "Alfian",
     Data = {},           -- isi file saat execute
     List = {},           -- tabel pengaturan yang disimpan
     LastJson = nil,
@@ -1231,7 +1274,7 @@ do (function()
                     Hook.Status = "Executor tidak punya fungsi request"
                 else
                     local body = HttpService:JSONEncode({
-                        username = "Kzoyz x Opus",
+                        username = "Fian792",
                         content = ("**[%s]** %s"):format(LocalPlayer.Name, text),
                     })
                     local ok, res = pcall(req, {
@@ -1680,7 +1723,7 @@ local function sendSetTile(layer, x, y, id)
     if Refs.SetTile then
         local ok, err = pcall(Refs.SetTile, layer, x, y, id, false, false)
         if ok then return true end
-        warn("[Kzoyz x Opus] setTile game gagal, pakai remote langsung: " .. tostring(err))
+        warn("[Fian792] setTile game gagal, pakai remote langsung: " .. tostring(err))
     end
     if NetOk and type(Net) == "table" and type(Net.tile) == "table" then
         -- sama seperti game: layer 1 = fg, 2 = bg
@@ -4301,7 +4344,7 @@ local function startClear()
     task.spawn(function()
         local ok, e = pcall(clearLoop)
         if not ok then
-            warn("[Kzoyz x Opus] Auto Clear error: " .. tostring(e))
+            warn("[Fian792] Auto Clear error: " .. tostring(e))
             if Clear.Running then stopClear("Error: " .. tostring(e)) end
         end
     end)
@@ -5017,7 +5060,7 @@ local function startFarmer()
     task.spawn(function()
         local ok, e = pcall(farmerLoop)
         if not ok then
-            warn("[Kzoyz x Opus] Farmer error: " .. tostring(e))
+            warn("[Fian792] Farmer error: " .. tostring(e))
             if Farmer.Running then stopFarmer("Error: " .. tostring(e)) end
         end
     end)
@@ -5220,7 +5263,7 @@ local function startSpliceRoam()
     task.spawn(function()
         local ok, e = pcall(spliceRoamLoop, id)
         if not ok then
-            warn("[Kzoyz x Opus] Splice error: " .. tostring(e))
+            warn("[Fian792] Splice error: " .. tostring(e))
             if Splice.Running and Splice.stop then Splice.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -5530,7 +5573,7 @@ local function pabrikBreak(o)
     end)
     Pabrik.Status = "Break " .. itemName(o.block) .. " di posisi pabrik"
     local ok, e = pcall(farmLoop, id)
-    if not ok then warn("[Kzoyz x Opus] Pabrik break error: " .. tostring(e)) end
+    if not ok then warn("[Fian792] Pabrik break error: " .. tostring(e)) end
     State.Running = false
     State.Override = nil
     State.Quiet = false
@@ -5911,7 +5954,7 @@ function Pabrik.start()
     task.spawn(function()
         local ok, e = pcall(pabrikLoop, id)
         if not ok then
-            warn("[Kzoyz x Opus] Pabrik error: " .. tostring(e))
+            warn("[Fian792] Pabrik error: " .. tostring(e))
             if Pabrik.Running then Pabrik.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -6603,7 +6646,7 @@ function Vend.start()
     task.spawn(function()
         local ok, e = pcall(vendLoop, id)
         if not ok then
-            warn("[Kzoyz x Opus] Vending error: " .. tostring(e))
+            warn("[Fian792] Vending error: " .. tostring(e))
             if Vend.Running then Vend.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -7188,7 +7231,7 @@ function Build.breakSession(o)
     end)
     Build.Status = ("Break %s di posisi break lahan (%d,%d)"):format(itemName(o.block), Build.BreakX, Build.BreakY)
     local ok, e = pcall(farmLoop, id)
-    if not ok then warn("[Kzoyz x Opus] Break lahan error: " .. tostring(e)) end
+    if not ok then warn("[Fian792] Break lahan error: " .. tostring(e)) end
     State.Running = false
     State.Override = nil
     State.Quiet = false
@@ -7563,7 +7606,7 @@ function Build.start()
     task.spawn(function()
         local ok, e = pcall(buildLoop, id)
         if not ok then
-            warn("[Kzoyz x Opus] Bangun Lahan error: " .. tostring(e))
+            warn("[Fian792] Bangun Lahan error: " .. tostring(e))
             if Build.Running then Build.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -7682,7 +7725,7 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------------
--- WATERMARK NAMA KZOYZ X OPUS (hanya di layar sendiri)
+-- WATERMARK NAMA FIAN792 (hanya di layar sendiri)
 ---------------------------------------------------------------------
 -- Nama asli (huruf gambar "BitmapText") disembunyikan, diganti teks beranimasi:
 -- warna gradient mengalir + denyut halus. Pemain lain tetap melihat nama asli.
@@ -7717,7 +7760,7 @@ end
 
 local function makeLabel(holder, size, isTag)
     local lb = Instance.new("TextLabel")
-    lb.Name = "KzoyzName"
+    lb.Name = "PianName"
     lb.BackgroundTransparency = 1
     lb.Font = NAME_FONT
     lb.TextSize = size
@@ -7855,7 +7898,7 @@ local GRID_RADIUS = 2
 local CELL = 38
 local GAP = 4
 
-local GridGui = newScreenGui("KzoyzGrid")
+local GridGui = newScreenGui("PianGrid")
 UI.GridGui = GridGui
 
 local side = GRID_RADIUS * 2 + 1
@@ -8072,7 +8115,7 @@ task.spawn(function()
 end)
 
 -- Tombol ▲/▼ untuk Fly (muncul saat Fly aktif)
-local FlyPad = newScreenGui("KzoyzFlyPad")
+local FlyPad = newScreenGui("PianFlyPad")
 UI.FlyPad = FlyPad
 
 local function flyButton(text, yOffset, onHold)
@@ -8133,7 +8176,7 @@ do (function()
     end
     local ok = pcall(function()
         WindUI:Popup({
-            Title = "Kzoyz x Opus",
+            Title = "Fian792",
             Icon = "languages",
             Content = "Pilih bahasa menu\nChoose menu language",
             Buttons = {
@@ -8152,10 +8195,10 @@ do (function()
 end)() end
 
 local Window = I18N.wrap(WindUI:CreateWindow({
-    Title = "Kzoyz x Opus",
+    Title = "Fian792",
     Icon = "sprout",
-    Author = "v5.9.0 | Tester",
-    Folder = "KzoyzOpus",
+    Author = "v1.4.0 | Tester",
+    Folder = "Alfian",
     Size = UDim2.fromOffset(640, 380),
     Theme = "Dark",
     Transparent = true,
@@ -8166,7 +8209,7 @@ local Window = I18N.wrap(WindUI:CreateWindow({
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
     Window:EditOpenButton({
-        Title = "Kzoyz x Opus",
+        Title = "Fian792",
         Icon = "sprout",
         Draggable = true,
         OnlyMobile = false,
@@ -8176,7 +8219,7 @@ end)
 -- Kalau 1 elemen error, tab lain tetap dibuat
 local function safe(fn)
     local ok, err = pcall(fn)
-    if not ok then warn("[Kzoyz x Opus] UI error: " .. tostring(err)) end
+    if not ok then warn("[Fian792] UI error: " .. tostring(err)) end
 end
 
 -- Sidebar dikelompokkan: grup utama bisa dibuka / ditutup (isinya tab-tab)
@@ -8901,7 +8944,7 @@ do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
         Guard.BackText = nil
         task.spawn(function()
             local ok, err = pcall(resumeAll, saved, token)
-            if not ok then warn("[Kzoyz x Opus] Penjaga lanjut error: " .. tostring(err)) end
+            if not ok then warn("[Fian792] Penjaga lanjut error: " .. tostring(err)) end
             if Guard.Token == token and Guard.Mode == "back" then
                 Guard.Mode, Guard.Saved, Guard.BackText = "idle", nil, nil
             end
@@ -9135,7 +9178,7 @@ do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
         while alive() do
             local here = (Guard.Mode ~= "away" and Guard.Mode ~= "out") and playersHere() or {}
             local ok, err = pcall(Guard.tick, here)
-            if not ok then warn("[Kzoyz x Opus] Penjaga error: " .. tostring(err)) end
+            if not ok then warn("[Fian792] Penjaga error: " .. tostring(err)) end
             Guard.updateStatus(here)
             task.wait(0.5)
         end
@@ -10631,7 +10674,7 @@ do (function()
             return Vend.labels(m)
         end)
         if not ok then
-            warn("[Kzoyz x Opus] daftar item vending error: " .. tostring(labels))
+            warn("[Fian792] daftar item vending error: " .. tostring(labels))
             return 0, "error: " .. tostring(labels)
         end
         local info = ("tas %d | drop %d | vending %d"):format(st.inv, st.drop, st.vend)
@@ -10644,7 +10687,7 @@ do (function()
             end)
             if not okR then
                 Vend.ItemSig = nil
-                warn("[Kzoyz x Opus] refresh dropdown item vending gagal: " .. tostring(errR))
+                warn("[Fian792] refresh dropdown item vending gagal: " .. tostring(errR))
                 notify("Vending", "Daftar item gagal dimuat: " .. tostring(errR), 6)
                 return
             end
@@ -10943,7 +10986,7 @@ do (function()
     local TeleportService = game:GetService("TeleportService")
     local GuiService = game:GetService("GuiService")
     local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
-    local PENDING = "KzoyzOpus/rejoin_" .. tostring(LocalPlayer.UserId) .. ".json"
+    local PENDING = "Alfian/rejoin_" .. tostring(LocalPlayer.UserId) .. ".json"
 
     -- catat aktivitas selagi masih jalan
     task.spawn(function()
@@ -11533,7 +11576,7 @@ do (function()
                 end
                 local was = Hook.On
                 Hook.On = true
-                Hook.send("test", "Tes notifikasi dari Kzoyz x Opus")
+                Hook.send("test", "Tes notifikasi dari Fian792")
                 Hook.On = was
                 notify("Discord", "Pesan tes masuk antrian", 3)
             end,
@@ -11575,14 +11618,14 @@ do
     task.spawn(function()
         while alive() do
             local ok, err = pcall(UI.runJobs)
-            if not ok then warn("[Kzoyz x Opus] UI runner: " .. tostring(err)) end
+            if not ok then warn("[Fian792] UI runner: " .. tostring(err)) end
             task.wait(0.1)
         end
     end)
 end
 
 task.spawn(function()
-    reconnect("Kzoyz x Opus v5.2")
+    reconnect("Fian792 v1.4")
     -- Penjaga dari config dinyalakan setelah data pemain ketemu
     -- (supaya pemain yang sudah ada dicatat dulu)
     if Config.saved("Penjaga", "On") == true and alive() then
