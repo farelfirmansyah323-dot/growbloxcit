@@ -1,3 +1,8 @@
+-- N4TH HUB UI REDESIGN
+-- Based on the supplied PEEX(2).txt source.
+-- Changes are limited to the WindUI window presentation and sidebar group labels.
+-- Existing feature logic and callbacks are preserved as supplied.
+
 
 local G = (getgenv and getgenv()) or _G
 for _, key in ipairs({ "__n4thOpus", "__GTFarm" }) do -- __GTFarm = nama versi lama
@@ -9491,14 +9496,14 @@ end)() end
 
 Session.InitStep = "membuat menu WindUI"
 local Window = I18N.wrap(WindUI:CreateWindow({
-    Title = "n4th",
-    Icon = "sprout",
-    Author = "v5.9.0 | Tester",
+    Title = "N4TH HUB",
+    Icon = "zap",
+    Author = "PREMIUM INTERFACE  |  v5.9.0",
     Folder = "n4thOpus",
-    Size = UDim2.fromOffset(640, 380),
+    Size = UDim2.fromOffset(720, 460),
     Theme = "Dark",
-    Transparent = true,
-    SideBarWidth = 150,
+    Transparent = false,
+    SideBarWidth = 175,
     ToggleKey = Enum.KeyCode.Insert,  -- PC: tekan Insert untuk buka/tutup menu
 }))
 UI.Window = Window
@@ -9506,8 +9511,8 @@ UI.Window = Window
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
     Window:EditOpenButton({
-        Title = "n4th",
-        Icon = "sprout",
+        Title = "N4TH",
+        Icon = "zap",
         Draggable = true,
         OnlyMobile = false,
     })
@@ -9522,10 +9527,10 @@ end
 -- Sidebar dikelompokkan: grup utama bisa dibuka / ditutup (isinya tab-tab)
 local Groups = {}
 for _, g in ipairs({
-    { key = "farm", title = "Farming", icon = "sprout", opened = true },
-    { key = "fitur", title = "Fitur", icon = "sparkles" },
-    { key = "aman", title = "Keamanan", icon = "shield" },
-    { key = "setel", title = "Setelan", icon = "settings" },
+    { key = "farm", title = "FARMING", icon = "sprout", opened = true },
+    { key = "fitur", title = "TOOLS & FEATURES", icon = "layers" },
+    { key = "aman", title = "PROTECTION", icon = "shield-check" },
+    { key = "setel", title = "PREFERENCES", icon = "sliders-horizontal" },
 }) do
     local ok, sec = pcall(function()
         return Window:Section({ Title = g.title, Icon = g.icon, Opened = g.opened == true })
