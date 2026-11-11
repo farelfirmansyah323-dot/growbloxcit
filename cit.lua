@@ -5,7 +5,7 @@ for _, key in ipairs({ "__n4thOpus", "__GTFarm" }) do -- __GTFarm = nama versi l
     G[key] = nil
 end
 local Session = {}
-Session.Build = "2026-11-09-inventory-ui-budget-1"
+Session.Build = "2026-11-11-ui-open-fix-1"
 G.__n4thOpus = Session
 local function alive()
     return G.__n4thOpus == Session
@@ -3849,9 +3849,10 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
     end
 
     local function isGoal(nx, ny)
-        if route and not route.point(nx, ny) then return false end
+        if route and not route.point(nx, ny) then return 0 end
         -- goals.maxY: tempat berdiri tidak boleh lebih bawah dari ini (Bangun Lahan)
-        if goals.maxY and ny > goals.maxY then return false end
+        if goals.maxY and ny > goals.maxY then return 0 end
+        local count = 0
         for ty = ny + dyLo, ny + dyHi do
             if ty >= 0 and ty < H then
                 local base = ty * W
@@ -3861,12 +3862,13 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
                         and not (goals.noSelf and tx == nx and ty == ny)
                         and not (goals.los and ty - ny >= 2 and not open(tx, ny + 1))
                         and not (goals.los and ny - ty >= 2 and not open(tx, ny - 1)) then
-                        return true
+                        if not goals.preferBatch then return 1 end
+                        count += 1
                     end
                 end
             end
         end
-        return false
+        return count
     end
 
     local ex, ey, ek, ec, eb = {}, {}, {}, {}, {}
@@ -3880,6 +3882,14 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
     local function expand(x, y)
         n = 0
         fromX, fromY = x, y
+        -- Platform bisa dilewati dari bawah. Tangga di ujung lahan sering
+        -- memerlukan lompat lurus pada kolom yang sama sebelum berbelok.
+        for dy = 1, 3 do
+            if not open(x, y - dy) then break end
+            if sup(x, y - dy) and open(x, y - dy - 1) then
+                add(x, y - dy, "jump", 1 + 1.5 * dy, false)
+            end
+        end
         for s = -1, 1, 2 do
             local ax = x + s
             if open(ax, y) then
@@ -3942,13 +3952,29 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
 
     local startI = sy * W + sx
     local g, came, kind, buildOf, closed = { [startI] = 0 }, {}, {}, {}, {}
+    local function makePath(cur)
+        local path, i = {}, cur
+        while i ~= startI do
+            local p = came[i]
+            path[#path + 1] = { fx = p % W, fy = p // W, x = i % W, y = i // W,
+                kind = kind[i], build = buildOf[i], key = p * WH + i }
+            i = p
+        end
+        for left = 1, #path // 2 do
+            local right = #path - left + 1
+            path[left], path[right] = path[right], path[left]
+        end
+        return path
+    end
     local hf, hi, hn = {}, {}, 0
     hn = heapPush(hf, hi, hn, h(sx, sy), startI)
     local expanded = 0
     local now = os.clock()
     local nextSlice, popped = now + 0.0015, 0
+    local bestGoal, bestCount, bestCost, costLimit = nil, 0, math.huge, nil
 
     while hn > 0 do
+        if costLimit and hf[1] > costLimit + (goals.batchExtra or 6) then break end
         popped += 1
         -- Biaya satu titik berbeda-beda (collision, lock, dan lompatan).
         -- Batasi waktu CPU, bukan menunggu 400 titik selesai sekaligus.
@@ -3959,28 +3985,19 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
         end
         local cur
         cur, hn = heapPop(hf, hi, hn)
-        if not closed[cur] then
+        if not closed[cur] and (not costLimit or g[cur] <= costLimit) then
             closed[cur] = true
             local cx, cy = cur % W, cur // W
-            if isGoal(cx, cy) then
-                local path = {}
-                local i = cur
-                while i ~= startI do
-                    local p = came[i]
-                    path[#path + 1] = {
-                        fx = p % W, fy = p // W, x = i % W, y = i // W,
-                        kind = kind[i], build = buildOf[i], key = p * WH + i,
-                    }
-                    i = p
+            local count = isGoal(cx, cy)
+            if count > 0 then
+                if not goals.preferBatch or count >= (goals.targetCount or 1) then return makePath(cur), false, closed end
+                if count > bestCount or (count == bestCount and g[cur] < bestCost) then
+                    bestGoal, bestCount, bestCost = cur, count, g[cur]
                 end
-                for left = 1, #path // 2 do
-                    local right = #path - left + 1
-                    path[left], path[right] = path[right], path[left]
-                end
-                return path, false, closed
+                costLimit = costLimit or (g[cur] + (goals.batchExtra or 6))
             end
             expanded += 1
-            if expanded > MAX_EXPAND then return nil, false, closed end
+            if expanded > MAX_EXPAND then return bestGoal and makePath(bestGoal) or nil, false, closed end
             local gc = g[cur]
             local cnt = expand(cx, cy)
             for k = 1, cnt do
@@ -3990,7 +4007,7 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
                     if not (bad and bad > now) then
                         local ng = gc + ec[k]
                         local old = g[ni]
-                        if old == nil or ng < old then
+                        if (not costLimit or ng <= costLimit) and (old == nil or ng < old) then
                             g[ni], came[ni], kind[ni], buildOf[ni] = ng, cur, ek[k], eb[k]
                             hn = heapPush(hf, hi, hn, ng + h(ex[k], ey[k]), ni)
                         end
@@ -3999,6 +4016,7 @@ local function astar(sx, sy, goals, gx, gy, R, useBlock, route)
             end
         end
     end
+    if bestGoal then return makePath(bestGoal), false, closed end
     return nil, true, closed -- tidak ada jalan sama sekali
 end
 
@@ -4417,6 +4435,9 @@ local function travelGroup(sx, sy, group, R, useBlock, skipTbl, failTbl)
     local goals = {}
     goals.maxY = group.maxY
     goals.los = group.los
+    if group.preferBatch then
+        goals.preferBatch, goals.targetCount, goals.batchExtra = true, #group, math.max(2, 2 * floor(R))
+    end
     for _, t in ipairs(group) do goals[t.idx] = true end
     local first = group[1]
     setMoveStatus(("Cari jalan A* ke (%d,%d)"):format(first.x, first.y))
@@ -5180,10 +5201,11 @@ local function clearLoop()
         local sx, sy = startNode(s)
         local band = bandTargets(topRow, bottom, dir, reachFilter(sy * w.w + sx, R, useBlock))
         if #band > 0 then
-            -- tujuan: 5 kolom berikutnya sesuai arah sapu
-            local group = {}
+            -- Pilih posisi yang mencakup lebar jangkauan pukul, lalu habiskan
+            -- semua target di sekitarnya sebelum mencari posisi berikutnya.
+            local group = { preferBatch = true }
             for _, t in ipairs(band) do
-                if (t.x - band[1].x) * dir <= 4 then group[#group + 1] = t end
+                if (t.x - band[1].x) * dir <= 2 * floor(R) then group[#group + 1] = t end
             end
             travelGroup(sx, sy, group, R, useBlock, Clear.Skip, ClearFail)
         end
@@ -8994,6 +9016,101 @@ local NAME_COLORS = ColorSequence.new({
 })
 local NAME_FONT = Enum.Font.FredokaOne
 
+do
+local function nameGlyphs(holder)
+    local bitmap = holder and holder:FindFirstChild("BitmapText")
+    if not bitmap then return nil end
+    local glyphs = {}
+    for _, child in ipairs(bitmap:GetChildren()) do
+        if child:IsA("ImageLabel") then glyphs[#glyphs + 1] = child end
+    end
+    if #glyphs == 0 then return nil end
+    table.sort(glyphs, function(a, b)
+        if a.Position.X.Offset ~= b.Position.X.Offset then return a.Position.X.Offset < b.Position.X.Offset end
+        return a.Position.Y.Offset < b.Position.Y.Offset
+    end)
+    local key = {}
+    for _, glyph in ipairs(glyphs) do
+        key[#key + 1] = ("%s:%d,%d,%d,%d"):format(glyph.Image, glyph.ImageRectOffset.X, glyph.ImageRectOffset.Y,
+            glyph.ImageRectSize.X, glyph.ImageRectSize.Y)
+    end
+    return table.concat(key, "|")
+end
+
+local function nameVisible(object)
+    local node = object
+    while node and node ~= PlayerGui do
+        if node:IsA("GuiObject") and not node.Visible then return false end
+        if node:IsA("ScreenGui") and not node.Enabled then return false end
+        node = node.Parent
+    end
+    return node == PlayerGui
+end
+
+local function nameTagShape(holder)
+    if not holder:IsA("Frame") or holder.AnchorPoint.X ~= 0.5 or holder.AnchorPoint.Y ~= 1 then return false end
+    if not holder:FindFirstChild("BitmapText") then return false end
+    for _, child in ipairs(holder:GetChildren()) do
+        if child:IsA("ImageLabel") and child.Size.X.Offset == 32 and child.Size.Y.Offset == 32 then return true end
+    end
+    return false
+end
+
+local function ownNameGlyphs()
+    local chat = PlayerGui:FindFirstChild("ChatGui")
+    local hud = chat and chat:FindFirstChild("HUD")
+    local panel = hud and hud:FindFirstChild("PlayerPanel")
+    return nameGlyphs(panel and panel:FindFirstChild("Name"))
+end
+
+local function findOwnNameTag(root, signature)
+    if not root or not signature then return nil end
+    local level, budget, visited = { root }, { next = os.clock() + 0.0015 }, 0
+    for _ = 0, 6 do
+        local found, matches = nil, 0
+        for _, object in ipairs(level) do
+            if nameTagShape(object) and nameVisible(object) and nameGlyphs(object) == signature then
+                found, matches = object, matches + 1
+            end
+            visited += 1
+            Session.scanStep(budget, visited * 8)
+            if not alive() then return nil end
+        end
+        if matches > 0 then return matches == 1 and found or nil end
+        local nextLevel = {}
+        for _, object in ipairs(level) do
+            for _, child in ipairs(object:GetChildren()) do
+                if child:IsA("Frame") and child.Visible then nextLevel[#nextLevel + 1] = child end
+            end
+            visited += 1
+            Session.scanStep(budget, visited * 8)
+            if not alive() then return nil end
+        end
+        if #nextLevel == 0 then break end
+        level = nextLevel
+    end
+end
+
+task.spawn(function()
+    while alive() do
+        if Misc.CustomName then
+            local holder, signature = NameFx.nativeHolder, ownNameGlyphs()
+            if not holder or not holder.Parent or not nameVisible(holder) or nameGlyphs(holder) ~= signature then
+                local gg = PlayerGui:FindFirstChild("GameGui")
+                local world = gg and gg:FindFirstChild("World")
+                local camera = world and world:FindFirstChild("Camera")
+                local legacy = camera and camera:FindFirstChild("NameTag")
+                local found = legacy or findOwnNameTag(gg, signature)
+                if not alive() or not Misc.CustomName then break end
+                NameFx.nativeHolder, Session.NameTagHolder = found, found
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+end
+
 -- Tempat nama: di atas karakter & panel kiri atas
 local function nameHolders()
     local gg = PlayerGui:FindFirstChild("GameGui")
@@ -9002,7 +9119,9 @@ local function nameHolders()
     local chat = PlayerGui:FindFirstChild("ChatGui")
     local hud = chat and chat:FindFirstChild("HUD")
     local panel = hud and hud:FindFirstChild("PlayerPanel")
-    return cam and cam:FindFirstChild("NameTag"), panel and panel:FindFirstChild("Name")
+    local tag = NameFx.nativeHolder
+    if not tag or not tag.Parent then tag = cam and cam:FindFirstChild("NameTag") end
+    return tag, panel and panel:FindFirstChild("Name")
 end
 
 local function textWidth(text, size)
@@ -9039,14 +9158,15 @@ local function makeLabel(holder, size, isTag)
     local sc = Instance.new("UIScale")
     sc.Parent = lb
     lb.Parent = holder
-    return { holder = holder, bitmap = holder:FindFirstChild("BitmapText"), label = lb, gr = gr, sc = sc,
+    local bitmap = holder:FindFirstChild("BitmapText")
+    return { holder = holder, bitmap = bitmap, bitmapVisible = bitmap and bitmap.Visible, label = lb, gr = gr, sc = sc,
         size = size, isTag = isTag, text = nil, w = 0 }
 end
 
 local function dropEntry(e)
     if not e then return end
     pcall(function() e.label:Destroy() end)
-    if e.bitmap then pcall(function() e.bitmap.Visible = true end) end
+    if e.bitmap then pcall(function() e.bitmap.Visible = e.bitmapVisible end) end
     if e.isTag and e.bitmap then
         -- kembalikan ukuran tag & posisi wrench sesuai nama asli
         pcall(function()
@@ -9062,6 +9182,7 @@ local function nameRestore()
     dropEntry(NameFx.tag)
     dropEntry(NameFx.panel)
     NameFx.tag, NameFx.panel = nil, nil
+    NameFx.nativeHolder, Session.NameTagHolder = nil, nil
 end
 
 -- Pastikan label ada, nama asli tersembunyi, ukuran tag pas dengan teks
@@ -9078,6 +9199,10 @@ local function nameKeep(e, holder, size, isTag)
         e.text = Misc.NameText
         e.label.Text = Misc.NameText
         e.w = textWidth(Misc.NameText, size)
+    end
+    local bitmap = holder:FindFirstChild("BitmapText")
+    if bitmap ~= e.bitmap then
+        e.bitmap, e.bitmapVisible = bitmap, bitmap and bitmap.Visible
     end
     if e.bitmap and e.bitmap.Visible then e.bitmap.Visible = false end
     if isTag then
@@ -9500,8 +9625,25 @@ local Window = I18N.wrap(WindUI:CreateWindow({
     Transparent = true,
     SideBarWidth = 150,
     ToggleKey = Enum.KeyCode.Insert,  -- PC: tekan Insert untuk buka/tutup menu
+    -- Pastikan tombol pembuka aktif di PC maupun mobile.
+    OpenButton = {
+        Enabled = true,
+        Draggable = true,
+        OnlyMobile = false,
+        Title = "n4th",
+        Icon = "sprout",
+    },
 }))
 UI.Window = Window
+
+-- Paksa window tampil; jangan bergantung hanya pada tombol minimize/open.
+task.defer(function()
+    task.wait(0.5)
+    if alive() and UI.Window then
+        local ok, err = pcall(function() UI.Window:Open() end)
+        if not ok then warn("[n4th] Gagal membuka window: " .. tostring(err)) end
+    end
+end)
 -- Tombol minimize muncul di mobile DAN PC (OnlyMobile=false), bisa digeser.
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
@@ -13911,6 +14053,11 @@ Session.Cleanup = function()
     pcall(function() FlyPad:Destroy() end)
     pcall(function() Window:Destroy() end)
 end
+
+Session.InitStep = "membuka menu"
+-- Panggil lagi setelah seluruh tab dan komponen selesai dibuat.
+local openOK, openErr = pcall(function() Window:Open() end)
+if not openOK then warn("[n4th] Window:Open gagal: " .. tostring(openErr)) end
 
 Session.InitStep = "siap"
 Session.Ready = true
