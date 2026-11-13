@@ -1298,7 +1298,7 @@ I18N.EN = {
     -- grup sidebar & tab
     ["Fitur"] = "Features", ["Keamanan"] = "Security", ["Setelan"] = "Setup",
     ["Pengaturan"] = "Settings", ["Penjaga"] = "Guard", ["Statistik"] = "Stats", ["Tas"] = "Bag",
-    ["Lahan"] = "Land", ["Pabrik"] = "Factory", ["Koneksi"] = "Connection",
+    ["Lahan"] = "Land", ["Auto Rotasi"] = "Auto Rotation", ["Koneksi"] = "Connection",
     -- kotak
     ["Kontrol"] = "Controls", ["Mode & Kecepatan"] = "Mode & Speed", ["Kecepatan"] = "Speed",
     ["Karakter"] = "Character", ["Opsi"] = "Options", ["Pesan"] = "Messages",
@@ -1588,9 +1588,9 @@ I18N.EN = {
     ["Kalau baris paling bawah tidak terjangkau dari tanah"] = "If the bottom row can't be reached from the ground",
     ["Lanjut Pabrik setelah selesai"] = "Start Factory when finished",
     -- Pabrik
-    ["Status Pabrik"] = "Factory Status",
-    ["Jalankan Pabrik"] = "Run Factory",
-    ["Break -> tanam -> panen -> break lagi, seed lebihan di-drop"] = "Break -> plant -> harvest -> break again, extra seeds are dropped",
+    ["Status Auto Rotasi"] = "Auto Rotation Status",
+    ["Jalankan Auto Rotasi"] = "Run Auto Rotation",
+    ["Panen & tanam dari baris atas, break untuk seed, lalu ulangi"] = "Harvest and plant from the top row, break for seeds, then repeat",
     ["Seed pabrik"] = "Factory seed",
     ["Block-nya otomatis (contoh: Dirt Seed -> Dirt)"] = "Block is automatic (example: Dirt Seed -> Dirt)",
     ["Tanam di seluruh world"] = "Plant in the whole world",
@@ -1791,7 +1791,7 @@ I18N.PH = {
     { "Posisi drop belum diatur", "Drop position not set" }, { "drop dilewati", "drop skipped" },
     { "Posisi drop dihapus", "Drop position cleared" }, { "Posisi drop", "Drop position" }, { "Posisi break", "Break position" },
     { "di posisi pabrik", "at the factory position" }, { "Pabrik berhenti", "Factory stopped" },
-    { "Bangun Lahan", "Build Land" }, { "Pabrik", "Factory" }, { "Penjaga", "Guard" }, { "Lahan", "Land" },
+    { "Bangun Lahan", "Build Land" }, { "Auto Rotasi", "Factory" }, { "Penjaga", "Guard" }, { "Lahan", "Land" },
     { "Gagal masuk lagi ke", "Failed to rejoin" }, { "Gagal masuk", "Failed to enter" }, { "Gagal keluar world", "Failed to leave world" },
     { "Dicoba lagi nanti", "Will retry later" }, { "dicoba lagi", "retrying" },
     { "Gagal splice", "Splice failed" }, { "ditolak server", "rejected by server" }, { "Splice jadi", "Spliced into" },
@@ -6251,6 +6251,8 @@ local function farmerWorkInReach(s)
         end
     end
     local function byX(a, b)
+        -- Auto Rotasi selalu menyelesaikan baris paling atas dahulu.
+        if FC.topDown and a.y ~= b.y then return a.y < b.y end
         if a.x ~= b.x then return a.x < b.x end
         return a.y < b.y
     end
@@ -6324,7 +6326,8 @@ local function farmerScan(px, py, maxN, filter)
                                 skipTile(FC.skip, idx, 60)
                             else
                                 local dx, dy = x - px, (y - py) * 1.3
-                                local d = dx * dx + dy * dy
+                                -- Auto Rotasi: prioritas Y terkecil (baris atas), lalu X kiri-kanan.
+                                local d = FC.topDown and (y * W + x) or (dx * dx + dy * dy)
                                 if #best < maxN or d < best[#best].d then
                                     if canWorkAt(x, y) then
                                         local pos = #best + 1
@@ -6371,7 +6374,10 @@ local function farmerScan(px, py, maxN, filter)
     local lock = FC.row and FC.row.y
     local order = {}
     for y in pairs(rows) do order[#order + 1] = y end
-    local function rowKey(y) return (y == lock) and -1 or math.abs(y - py) end
+    local function rowKey(y)
+        if y == lock then return -1 end
+        return FC.topDown and y or math.abs(y - py)
+    end
     table.sort(order, function(a, b)
         local ka, kb = rowKey(a), rowKey(b)
         if ka ~= kb then return ka < kb end
@@ -7094,6 +7100,7 @@ local function pabrikCfg(o, harvest, plant)
         plantSet = plantSet,
         exclude = o.exclude,
         row = Pabrik.Row,
+        topDown = true,
         collect = true,
         status = function(t) Pabrik.Status = t end,
         onHarvest = function() Pabrik.Harvested += 1 end,
@@ -7789,9 +7796,9 @@ local function pabrikStep(o)
             o.phase = "tanam"
             return "next"
         end
-        -- Panen dan tanam diaktifkan bersamaan agar tile yang baru dipanen
-        -- bisa langsung ditanami pada langkah field berikutnya, tanpa menunggu BREAK.
-        FC = pabrikCfg(o, true, true)
+        -- Selesaikan panen baris atas dahulu. Penanaman dilakukan pada fase TANAM,
+        -- supaya tidak selang-seling panen/tanam antar tile atau antar baris.
+        FC = pabrikCfg(o, true, false)
         local r = fieldStep()
         if r == "idle" then
             o.idleAt = os.clock()
@@ -7910,7 +7917,7 @@ function Pabrik.stop(reason)
     Pabrik.Status = reason or "Dihentikan"
     if UI.PabrikToggle then pcall(function() UI.PabrikToggle:Set(false) end) end
     if reason then
-        notify("Pabrik", reason, 5)
+        notify("Auto Rotasi", reason, 5)
         if not string.find(reason, "^Dihentikan") then Hook.send("pabrik", "Pabrik berhenti: " .. reason) end
     end
 end
@@ -7935,7 +7942,7 @@ function Pabrik.start()
         err = "Atur lahan dulu (tab Lahan)"
     end
     if err then
-        notify("Pabrik", err, 4)
+        notify("Auto Rotasi", err, 4)
         if UI.PabrikToggle then pcall(function() UI.PabrikToggle:Set(false) end) end
         return
     end
@@ -10578,7 +10585,7 @@ do (function()
         local pab = UI.GridMode == "pabrik"
         local lah = UI.GridMode == "lahan"
         local drop = UI.GridMode == "autodrop"
-        ModeBtn.Text = lah and I18N.T("Lahan") or (pab and I18N.T("Pabrik") or "Farm")
+        ModeBtn.Text = lah and I18N.T("Lahan") or (pab and I18N.T("Auto Rotasi") or "Farm")
         ModeBtn.BackgroundColor3 = lah and UI.Palette.Stop
             or (pab and UI.Palette.Action or UI.Palette.Surface)
         Title.Text = I18N.T(lah and "Tile Break Lahan" or (pab and "Tile Break Pabrik" or "Grid Tile"))
@@ -10815,7 +10822,7 @@ do
         { Title = "Produksi", Icon = "factory", Tabs = {
             { "Splice", "Splice", "git-merge" },
             { "Lahan", "Bangun Lahan", "layout-grid" },
-            { "Pabrik", "Pabrik", "factory" },
+            { "Auto Rotasi", "Auto Rotasi", "factory" },
             { "Vending", "Vending", "store" },
         } },
         { Title = "Alat", Icon = "wrench", Tabs = {
@@ -13721,10 +13728,10 @@ end)() end
 
 -- ===== TAB: PABRIK =====
 do (function()
-    local PTab = UI.Tabs["Pabrik"]
+    local PTab = UI.Tabs["Auto Rotasi"]
 
     safe(function()
-        UI.PabrikStatus = PTab:Paragraph({ Title = "Status Pabrik", Desc = "-" })
+        UI.PabrikStatus = PTab:Paragraph({ Title = "Status Auto Rotasi", Desc = "-" })
     end)
 
     local pCtl = box(PTab, "Kontrol", true)
@@ -13733,8 +13740,8 @@ do (function()
 
     safe(function()
         UI.PabrikToggle = pCtl:Toggle({
-            Title = "Jalankan Pabrik",
-            Desc = "Break -> tanam -> panen -> break lagi, seed lebihan di-drop",
+            Title = "Jalankan Auto Rotasi",
+            Desc = "Panen dan tanam berurutan dari baris atas; break untuk seed jika diperlukan",
             Value = false,
             Callback = function(on)
                 if on then Pabrik.start() elseif Pabrik.Running then Pabrik.stop() end
@@ -13770,11 +13777,11 @@ do (function()
             Callback = function()
                 local x, y = Auto.here()
                 if not x then
-                    notify("Pabrik", "Kamu belum masuk world", 3)
+                    notify("Auto Rotasi", "Kamu belum masuk world", 3)
                     return
                 end
                 Pabrik.BreakX, Pabrik.BreakY = x, y
-                notify("Pabrik", ("Posisi break (%d,%d)"):format(x, y), 3)
+                notify("Auto Rotasi", ("Posisi break (%d,%d)"):format(x, y), 3)
             end,
         })
     end)
@@ -15259,7 +15266,7 @@ end)() end
 ---------------------------------------------------------------------
 -- INIT
 ---------------------------------------------------------------------
-for field, title in pairs({ InvDropdown = "Farm", SeedDropdown = "Farmer", PabrikSeedDropdown = "Pabrik",
+for field, title in pairs({ InvDropdown = "Farm", SeedDropdown = "Farmer", PabrikSeedDropdown = "Auto Rotasi",
     ClearBlockDropdown = "Clear World", FarmerBlockDropdown = "Farmer", BuildBlockDropdown = "Lahan" }) do
     if UI[field] then UI.DropdownTabs[UI[field]] = title end
 end
