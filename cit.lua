@@ -1,4 +1,3 @@
-
 local G = _G
 if type(getgenv) == "function" then
     local ok, globals = pcall(getgenv)
@@ -1007,6 +1006,7 @@ local Pabrik = {
     SeedId = nil,
     BlockId = nil,
     WholeWorld = false,  -- tanam & panen di seluruh world (bukan hanya lahan)
+    Span = 2,            -- panen: tile kiri & kanan dari posisi tengah (2 = 2 kiri + tengah + 2 kanan)
     Tiles = {},          -- tile break, relatif ke posisi break ("dx,dy")
     BreakX = -1, BreakY = -1,
     BreakSec = 60,       -- lama 1 sesi break sebelum cek pohon lagi
@@ -1018,7 +1018,6 @@ local Pabrik = {
     Harvested = 0,
     Planted = 0,
     Dropped = 0,
-    Reach = 5,            -- jangkauan panen Auto Rotasi dari pusat karakter (tile)
     Skip = {},
     Status = "-",
     Traveling = false,
@@ -2206,7 +2205,7 @@ Config.add("Vending", Vend, { "Mode", "Point", "Items", "DropX", "DropY" })
 Config.add("AutoDrop", AutoDrop, { "Items", "World", "X", "Y", "Facing" })
 Config.add("WorldFinder", WorldFinder, { "Mode", "Custom", "Manual", "Limit", "DelaySec", "WebhookEach" })
 Config.add("Pabrik", Pabrik, {
-    "SeedId", "WholeWorld", "Tiles", "BreakX", "BreakY",
+    "SeedId", "WholeWorld", "Span", "Tiles", "BreakX", "BreakY",
     "Drop", "Keep", "DropAt", "DropWorld", "DropX", "DropY",
 })
 Config.add("Bahasa", I18N, { "Saved", "Ask", "Chosen" })
@@ -6217,12 +6216,21 @@ local function plantSeed(x, y)
     return true
 end
 
+-- Collect rotasi: jalan kanan N tile, lalu kiri N tile (memungut drop panen)
+local function spanCollect(cx, row, span)
+    if span <= 0 then return FC.run() and alive() end
+    for _, tx in ipairs({ cx + span, cx - span }) do
+        if not FC.run() or not alive() then return false end
+        Auto.walkTo(tx, row, 10, FC.run)
+    end
+    return FC.run() and alive()
+end
+
 -- Panen & tanam semua yang terjangkau dari sini
 local function farmerWorkInReach(s)
     local w = Refs.World
     local W = w.w
-    -- Auto Rotasi memakai radius panen tersendiri dari pusat karakter.
-    local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.08)
+    local R = FC.plant and FC.placeReach or farmReach() - 0.08
     local cx, cy = s.x, s.y - 0.475
     local now = os.clock()
     local st = workspace:GetServerTimeNow()
@@ -6236,7 +6244,7 @@ local function farmerWorkInReach(s)
                 if not skipped(FC.skip, idx, now) then
                     local id = fgIdAt(tx, ty)
                     if id ~= 0 and fcHarvestOk(tx, ty) and (not FC.only or id == FC.only)
-                        and (not FC.threeTile or abs(tx - floor(cx)) <= 1) then
+                        and (not FC.spanSet or FC.spanSet[idx]) then
                         local ra = treeReadyAt(tx, ty, id)
                         if ra and st >= ra and Move.los(bx, by, tx, ty) then
                             if canWorkAt(tx, ty) then
@@ -6258,17 +6266,6 @@ local function farmerWorkInReach(s)
         if FC.topDown and a.y ~= b.y then return a.y < b.y end
         if a.x ~= b.x then return a.x < b.x end
         return a.y < b.y
-    end
-    -- Auto Rotasi: kerjakan satu baris panen pada satu waktu.
-    -- Pilih baris paling atas yang punya pohon siap dalam jangkauan;
-    -- bila belum ada yang siap di baris atas, baris siap berikutnya otomatis dipilih.
-    if FC.topDown and #harvest > 0 then
-        local rowY = harvest[1].y
-        local sameRow = {}
-        for _, tile in ipairs(harvest) do
-            if tile.y == rowY then sameRow[#sameRow + 1] = tile end
-        end
-        harvest = sameRow
     end
     table.sort(harvest, byX)
     table.sort(plant, byX)
@@ -6296,7 +6293,11 @@ local function farmerWorkInReach(s)
         task.wait(0.25) -- drop panen muncul sedikit terlambat
         if not FC.run() or not alive() then return done end
         -- susuri baris ini sampai drop terjauh (terambil sambil lewat, tanpa berhenti)
-        if Move.fetchDrops(FC.run, 8, function(d) return abs(d.y - cy) <= 1.6 end, 10) > 0 then return done end
+        if FC.spanX then
+            if not spanCollect(FC.spanX, floor(cy), FC.span) then return done end
+        elseif Move.fetchDrops(FC.run, 8, function(d) return abs(d.y - cy) <= 1.6 end, 10) > 0 then
+            return done
+        end
     end
     for _, t in ipairs(plant) do
         if not FC.run() or not alive() then return done end
@@ -6325,7 +6326,6 @@ local function farmerScan(px, py, maxN, filter)
     local nextReady = nil
     local doPlant = FC.plant and fcSeeds() > 0
     local rows = {} -- [y] = daftar tempat tanam di baris itu
-    local bestHarvestRow = nil -- Auto Rotasi hanya mengambil satu baris siap per perjalanan
     local scanned = 0
     for y = 0, H - 1 do
         local frow, below = w.fg[y], w.fg[y + 1]
@@ -6341,12 +6341,10 @@ local function farmerScan(px, py, maxN, filter)
                                 skipTile(FC.skip, idx, 60)
                             else
                                 local dx, dy = x - px, (y - py) * 1.3
-                                -- Auto Rotasi: pilih baris paling atas yang memiliki pohon siap,
-                                -- lalu selesaikan baris itu kiri ke kanan sebelum pindah ke bawah.
-                                local d = FC.topDown and x or (dx * dx + dy * dy)
-                                if not FC.topDown or bestHarvestRow == nil or y == bestHarvestRow then
+                                -- Auto Rotasi: prioritas Y terkecil (baris atas), lalu X kiri-kanan.
+                                local d = FC.topDown and (y * W + x) or (dx * dx + dy * dy)
+                                if #best < maxN or d < best[#best].d then
                                     if canWorkAt(x, y) then
-                                        if FC.topDown then bestHarvestRow = y end
                                         local pos = #best + 1
                                         while pos > 1 and best[pos - 1].d > d do pos -= 1 end
                                         table.insert(best, pos, { x = x, y = y, idx = idx, d = d, kind = "harvest" })
@@ -6469,6 +6467,73 @@ function Move.airCheck(s)
     end
 end
 
+-- Posisi tengah rotasi: baris paling atas yang punya pohon siap. Tengah = pohon siap
+-- dengan jumlah pohon siap terbanyak dalam ±span tile. Hasil: cx, row, set[idx], tiles
+local function spanCenter(span)
+    local w = Refs.World
+    if not w then return nil end
+    local st, now = workspace:GetServerTimeNow(), os.clock()
+    for y = 0, w.h - 1 do
+        local frow = w.fg[y]
+        if frow then
+            local xs = {}
+            for x = 0, w.w - 1 do
+                local id = frow[x] or 0
+                if id ~= 0 and fcHarvestOk(x, y) and (not FC.only or id == FC.only) then
+                    local ra = treeReadyAt(x, y, id)
+                    local idx = y * w.w + x
+                    if ra and st >= ra and not skipped(FC.skip, idx, now) and canWorkAt(x, y) then
+                        xs[#xs + 1] = x
+                    end
+                end
+            end
+            if #xs > 0 then
+                local bestX, bestN = xs[1], -1
+                for _, cx in ipairs(xs) do
+                    local n = 0
+                    for _, x in ipairs(xs) do
+                        if abs(x - cx) <= span then n += 1 end
+                    end
+                    if n > bestN then bestX, bestN = cx, n end
+                end
+                local set, tiles = {}, {}
+                for _, x in ipairs(xs) do
+                    if abs(x - bestX) <= span then
+                        local idx = y * w.w + x
+                        set[idx] = true
+                        tiles[#tiles + 1] = { x = x, y = y, idx = idx, kind = "harvest" }
+                    end
+                end
+                return bestX, y, set, tiles
+            end
+        end
+    end
+    return nil
+end
+
+-- Langkah panen rotasi: panen 5 tile (kiri N, tengah, kanan N) dari posisi tengah
+local function spanFieldStep(s)
+    local cx, row, set, tiles = spanCenter(FC.span)
+    if not cx then return "idle" end
+    FC.spanSet, FC.spanX = set, cx
+    if farmerWorkInReach(s) > 0 then return "work" end
+    -- belum terjangkau dari sini: jalan ke posisi tengah (tile tengah diurutkan paling dekat)
+    local R = farmReach() - 0.35
+    local useBlock = scaffoldId() ~= nil
+    local sx, sy = startNode(s)
+    table.sort(tiles, function(a, b) return abs(a.x - cx) < abs(b.x - cx) end)
+    tiles.los = true
+    travelGroup(sx, sy, tiles, R, useBlock, FC.skip, FarmerFail)
+    local after = playerState()
+    if not after then return "wait" end
+    for _, t in ipairs(tiles) do
+        if stateReaches(after, t.x, t.y, farmReach() - 0.08) then return "move" end
+    end
+    -- tidak ada yang terjangkau setelah jalan: lewati sebentar agar tidak berputar
+    for _, t in ipairs(tiles) do skipTile(FC.skip, t.idx, 30) end
+    return "idle"
+end
+
 local function fieldStep()
     local w = Refs.World
     local s = playerState()
@@ -6485,9 +6550,9 @@ local function fieldStep()
     end
     Move.AirAt = nil
     releaseInput()
+    if FC.span then return spanFieldStep(s) end
     if farmerWorkInReach(s) > 0 then return "work" end
-    -- Radius pencarian target panen sama dengan radius kerja di sekitar karakter.
-    local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.35)
+    local R = FC.plant and FC.placeReach or farmReach() - 0.35
     local useBlock = scaffoldId() ~= nil
     local sx, sy = startNode(s)
     local px, py = floor(s.x), floor(s.y - 0.475)
@@ -7109,9 +7174,7 @@ local function pabrikCfg(o, harvest, plant)
     return {
         run = o.live,
         harvest = harvest,
-        -- Panen 3 tile sejajar: kiri, tengah (posisi karakter), kanan.
-        harvestReach = harvest and 1 or nil,
-        threeTile = harvest,
+        span = harvest and Pabrik.Span or nil, -- panen posisi tengah (kiri/kanan N tile)
         plant = plant and invCount(o.seed) > 0,
         seed = o.seed,
         skip = Pabrik.Skip,
@@ -13790,6 +13853,13 @@ do (function()
             Callback = function(on) Pabrik.WholeWorld = on end,
         })
     end)
+
+    addNumber(pBreak, {
+        Title = "Lebar panen (tile kiri & kanan)",
+        Desc = "Panen di posisi tengah: 2 = kiri 2 + tengah + kanan 2, lalu collect jalan kanan 2 & kiri 2",
+        Min = 0, Max = 5, Step = 1, Default = Pabrik.Span,
+        Callback = function(v) Pabrik.Span = math.floor(v) end,
+    })
 
     safe(function()
         pBreak:Button({
