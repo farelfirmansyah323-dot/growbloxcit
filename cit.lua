@@ -14033,7 +14033,7 @@ local Rejoin = {
     Server = true,      -- rejoin kalau disconnect dari server
     DelaySec = 5,
     ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/cit.lua",
-    Keep = false,       -- selalu kembali ke world tujuan kalau berada di luar world
+    Keep = true,        -- selalu kembali ke world tujuan kalau berada di luar world (menu pilih world)
     Target = "",        -- world tujuan (kosong = world terakhir)
     LastWorld = "",     -- world terakhir yang dimasuki
     Last = nil,         -- catatan aktivitas terakhir
@@ -14060,7 +14060,7 @@ do (function()
             if Guard.anyRunning and Guard.anyRunning() and Guard.Mode == "idle" then
                 Rejoin.Last = Guard.snapshot()
                 Rejoin.LastAt = now
-            elseif now - Rejoin.LastAt > 3 and Guard.Mode == "idle" and wn ~= "" then
+            elseif now - Rejoin.LastAt > 3 and Guard.Mode == "idle" and wn ~= "" and playerState() then
                 -- masih di world tapi aktivitas dihentikan sendiri: jangan dilanjutkan
                 Rejoin.Last = nil
             end
@@ -14202,7 +14202,8 @@ do (function()
         local outSince = nil
         while alive() do
             task.wait(2)
-            local out = Guard.worldName() == ""
+            -- di luar world = nama world kosong ATAU karakter tidak ada (menu pilih world)
+            local out = Guard.worldName() == "" or playerState() == nil
             local free = Rejoin.On and Rejoin.Keep and not Rejoin.Busy and not Rejoin.Leaving and not Pabrik.Traveling
                 and not WorldFinder.Busy and Guard.Mode == "idle"
             if not (out and free) then
@@ -14236,6 +14237,7 @@ do (function()
     local function onDisconnect(msg)
         if not (Rejoin.On and Rejoin.Server) or Rejoin.Leaving then return end
         Rejoin.Leaving = true
+        notify("Auto Rejoin", "Disconnect terdeteksi, rejoin ke server...", 4)
         local finderActive = WorldFinder.Busy and WorldFinder.Running and not WorldFinder.Cancelled
         local saved = not finderActive and (Rejoin.Last or (Guard.anyRunning() and Guard.snapshot())) or nil
         local world = finderActive and WorldFinder.Queue and WorldFinder.Queue[WorldFinder.Index]
@@ -14247,7 +14249,13 @@ do (function()
                 spam = saved.spam, splice = saved.splice, pabrik = saved.pabrik, build = saved.build,
                 tx = saved.tx, ty = saved.ty, at = os.time(),
             }
-            pcall(function() writefile(PENDING, HttpService:JSONEncode(data)) end)
+            pcall(function()
+                local folder = PENDING:match("^(.*)/[^/]+$")
+                if folder and type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(folder) then
+                    makefolder(folder)
+                end
+                writefile(PENDING, HttpService:JSONEncode(data))
+            end)
         end
         local queued
         if finderActive and WorldFinder.armTeleport then queued = WorldFinder.armTeleport()
@@ -14269,6 +14277,28 @@ do (function()
         table.insert(Connections, GuiService.ErrorMessageChanged:Connect(function(msg)
             if alive() and type(msg) == "string" and msg ~= "" then onDisconnect(msg) end
         end))
+    end)
+    -- Cadangan: prompt error Roblox ("Disconnected", kick, koneksi putus)
+    task.spawn(function()
+        local okG, overlay = pcall(function()
+            local core = game:GetService("CoreGui")
+            return core:WaitForChild("RobloxPromptGui", 30):WaitForChild("promptOverlay", 30)
+        end)
+        if not okG or not overlay then return end
+        local function check(child)
+            if alive() and child and child.Name == "ErrorPrompt" then
+                local msg = "Disconnected"
+                pcall(function()
+                    local label = child:FindFirstChild("MessageArea", true)
+                    label = label and label:FindFirstChild("ErrorFrame", true)
+                    label = label and label:FindFirstChild("ErrorMessage", true)
+                    if label and label.Text ~= "" then msg = label.Text end
+                end)
+                onDisconnect(msg)
+            end
+        end
+        table.insert(Connections, overlay.ChildAdded:Connect(check))
+        for _, child in ipairs(overlay:GetChildren()) do check(child) end
     end)
 
     -- ===== setelah execute: lanjutkan dari catatan rejoin =====
