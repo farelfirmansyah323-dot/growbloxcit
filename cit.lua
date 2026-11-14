@@ -1140,16 +1140,17 @@ local DropFailUntil = {}   -- drop yang ditolak, dicoba lagi nanti
 
 local UI = { Tabs = {}, DropdownTabs = {}, PendingDropdowns = {} }
 UI.Palette = {
-    Background = Color3.fromHex("140B10"),
-    Panel = Color3.fromHex("201017"),
-    Surface = Color3.fromHex("2D1720"),
-    Border = Color3.fromHex("69404C"),
-    Text = Color3.fromHex("FFF0F2"),
-    Muted = Color3.fromHex("D7B4BF"),
-    Icon = Color3.fromHex("F9BCC9"),
-    Accent = Color3.fromHex("FA526A"),
-    Action = Color3.fromHex("AA2944"),
-    Stop = Color3.fromHex("702430"),
+    -- Dark Blue Neon: kontras lembut, tanpa warna merah yang terlalu mencolok.
+    Background = Color3.fromHex("080D18"),
+    Panel = Color3.fromHex("101A2B"),
+    Surface = Color3.fromHex("17243A"),
+    Border = Color3.fromHex("263D5E"),
+    Text = Color3.fromHex("EAF3FF"),
+    Muted = Color3.fromHex("91A8C5"),
+    Icon = Color3.fromHex("8CC8FF"),
+    Accent = Color3.fromHex("38A7FF"),
+    Action = Color3.fromHex("176BC1"),
+    Stop = Color3.fromHex("243B59"),
 }
 function UI.tabVisible(title)
     if not UI.Window then return true end
@@ -10869,7 +10870,7 @@ do
     }) do
         theme[key] = color
     end
-    theme.Name = "BoyS Red"
+    theme.Name = "BoyS Blue"
     WindUI:AddTheme(theme)
     WindUI:SetTheme(theme.Name)
     pcall(function() WindUI:SetFont(Font.fromEnum(Enum.Font.Roboto).Family) end)
@@ -10915,14 +10916,14 @@ Session.InitStep = "membuat menu WindUI"
 local Window = I18N.wrap(WindUI:CreateWindow({
     Title = "BoyS",
     Icon = "sprout",
-    Author = "v2.0",
+    Author = "Simple Edition",
     Folder = "BoySOpus",
-    Size = UDim2.fromOffset(668, 444),
-    MinSize = Vector2.new(485, 330),
-    Theme = "BoyS Red",
+    Size = UDim2.fromOffset(610, 410),
+    MinSize = Vector2.new(460, 310),
+    Theme = "BoyS Blue",
     Transparent = false,
-    SideBarWidth = 166,
-    ElementsRadius = 10,
+    SideBarWidth = 142,
+    ElementsRadius = 8,
     ToggleKey = Enum.KeyCode.Insert,  -- PC: tekan Insert untuk buka/tutup menu
 }))
 UI.Window = Window
@@ -10930,7 +10931,7 @@ UI.Window = Window
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
     Window:EditOpenButton({
-        Title = "BoyS v2.0",
+        Title = "BoyS",
         Icon = "sprout",
         Color = ColorSequence.new(UI.Palette.Accent, UI.Palette.Action),
         Draggable = true,
@@ -14033,7 +14034,7 @@ local Rejoin = {
     Server = true,      -- rejoin kalau disconnect dari server
     DelaySec = 5,
     ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/cit.lua",
-    Keep = true,        -- selalu kembali ke world tujuan kalau berada di luar world (menu pilih world)
+    Keep = false,       -- selalu kembali ke world tujuan kalau berada di luar world
     Target = "",        -- world tujuan (kosong = world terakhir)
     LastWorld = "",     -- world terakhir yang dimasuki
     Last = nil,         -- catatan aktivitas terakhir
@@ -14049,22 +14050,6 @@ do (function()
     local GuiService = game:GetService("GuiService")
     local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
     local PENDING = "BoySOpus/rejoin_" .. tostring(LocalPlayer.UserId) .. ".json"
-    local LASTFILE = "BoySOpus/lastworld_" .. tostring(LocalPlayer.UserId) .. ".txt"
-    local function ensureFolder()
-        pcall(function()
-            if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder("BoySOpus") then
-                makefolder("BoySOpus")
-            end
-        end)
-    end
-    if canFile then
-        pcall(function()
-            if isfile(LASTFILE) then
-                local w = tostring(readfile(LASTFILE) or ""):upper():gsub("[^A-Z0-9]", "")
-                if w ~= "" and (Rejoin.LastWorld or "") == "" then Rejoin.LastWorld = w end
-            end
-        end)
-    end
 
     -- catat aktivitas selagi masih jalan
     task.spawn(function()
@@ -14072,76 +14057,17 @@ do (function()
             local now = os.clock()
             if WorldFinder.Busy then task.wait(1) continue end
             local wn = Guard.worldName and Guard.worldName() or ""
-            if wn ~= "" and not Pabrik.Traveling then
-                if Rejoin.LastWorld ~= wn and canFile then
-                    ensureFolder()
-                    pcall(writefile, LASTFILE, wn)
-                end
-                Rejoin.LastWorld = wn
-            end
+            if wn ~= "" and not Pabrik.Traveling then Rejoin.LastWorld = wn end
             if Guard.anyRunning and Guard.anyRunning() and Guard.Mode == "idle" then
                 Rejoin.Last = Guard.snapshot()
                 Rejoin.LastAt = now
-            elseif now - Rejoin.LastAt > 3 and Guard.Mode == "idle" and wn ~= "" and playerState() then
+            elseif now - Rejoin.LastAt > 3 and Guard.Mode == "idle" and wn ~= "" then
                 -- masih di world tapi aktivitas dihentikan sendiri: jangan dilanjutkan
                 Rejoin.Last = nil
             end
             task.wait(1)
         end
     end)
-
-    -- Masuk world lewat chat "/warp NAMA" (cara paling andal), cadangan: menu game
-    local function sendWarp(world)
-        local ch = worldChannel()
-        if not ch then
-            local folder = TextChatService:FindFirstChild("WorldChannels")
-            if folder then
-                for _, c in ipairs(folder:GetChildren()) do
-                    if c:IsA("TextChannel") then ch = c break end
-                end
-            end
-        end
-        if not ch then
-            local chs = TextChatService:FindFirstChild("TextChannels")
-            if chs then
-                ch = chs:FindFirstChild("RBXGeneral")
-                if not ch then
-                    for _, c in ipairs(chs:GetChildren()) do
-                        if c:IsA("TextChannel") then ch = c break end
-                    end
-                end
-            end
-        end
-        if not ch then return false, "channel chat tidak ada" end
-        local ok, err = pcall(ch.SendAsync, ch, "/warp " .. world)
-        if not ok then return false, tostring(err) end
-        return true
-    end
-
-    local function warpTo(world)
-        local w = Refs.World
-        local oldFg = w and rawget(w, "fg")
-        local hadState = playerState() ~= nil
-        local ok, err = sendWarp(world)
-        if not ok then return false, err end
-        Rejoin.Status = "Kirim /warp " .. world .. "..."
-        local t0 = os.clock()
-        while alive() and os.clock() - t0 < 10 do
-            local w2 = Refs.World
-            if w2 and rawget(w2, "fg") ~= oldFg then return true end
-            if not hadState and playerState() and Guard.worldName() == world then return true end
-            task.wait(0.25)
-        end
-        return false, "/warp tidak memindahkan world"
-    end
-
-    local function enterSmart(world)
-        local ok, err = warpTo(world)
-        if ok then return true end
-        local ok2, err2 = Guard.enterWorld(world)
-        if ok2 then return true end
-        return false, tostring(err2 or err)
-    end
 
     local function resume(saved, reason)
         Guard.afterEnter()
@@ -14167,7 +14093,7 @@ do (function()
             task.wait(Rejoin.DelaySec + 1.5) -- tunggu animasi pintu selesai
             for try = 1, 3 do
                 if not (alive() and Rejoin.On) then break end
-                local ok, err = enterSmart(saved.world)
+                local ok, err = Guard.enterWorld(saved.world)
                 if ok then
                     task.wait(1.5)
                     resume(saved, "Masuk lagi")
@@ -14220,7 +14146,7 @@ do (function()
     local function enterAndResume(world, saved, reason)
         for try = 1, 3 do
             if not alive() then return false end
-            local ok, err = enterSmart(world)
+            local ok, err = Guard.enterWorld(world)
             if ok then
                 task.wait(1.5)
                 if saved and saved.world == world then
@@ -14268,8 +14194,7 @@ do (function()
             end
             if saved and saved.world ~= world then saved = nil end -- world lain: aktivitas tidak dilanjutkan
             Rejoin.Status = "Masuk ke " .. world .. "..."
-            local okE, err = pcall(enterAndResume, world, saved, "Rejoin")
-            if not okE then Rejoin.Status = "Error rejoin: " .. tostring(err) end
+            enterAndResume(world, saved, "Rejoin")
             Rejoin.Busy = false
         end)
     end
@@ -14278,39 +14203,22 @@ do (function()
         local outSince = nil
         while alive() do
             task.wait(2)
-            -- di luar world = nama world kosong ATAU karakter tidak ada (menu pilih world)
-            local out = Guard.worldName() == "" or playerState() == nil
-            local blocker
-            if not Rejoin.On then blocker = "Auto Reconnect mati"
-            elseif not Rejoin.Keep then blocker = "'Selalu kembali ke world' mati"
-            elseif Rejoin.Busy then blocker = "sedang proses masuk"
-            elseif Rejoin.Leaving then blocker = "menunggu rejoin server"
-            elseif Pabrik.Traveling or WorldFinder.Busy then blocker = "fitur lain sedang pindah world"
-            elseif Guard.Mode ~= "idle" then blocker = "Penjaga sedang aktif"
-            end
-            if not out or blocker then
+            local out = Guard.worldName() == ""
+            local free = Rejoin.On and Rejoin.Keep and not Rejoin.Busy and not Rejoin.Leaving and not Pabrik.Traveling
+                and not WorldFinder.Busy and Guard.Mode == "idle"
+            if not (out and free) then
                 outSince = nil
-                if out and blocker then Rejoin.Status = "Di luar world, tapi tidak masuk: " .. blocker end
             else
                 outSince = outSince or os.clock()
                 local world = Rejoin.targetWorld()
-                if world == "" then
-                    Rejoin.Status = "Di luar world, tapi World tujuan kosong. Isi 'World tujuan'"
-                elseif os.clock() - outSince >= Rejoin.DelaySec then
+                if world ~= "" and os.clock() - outSince >= Rejoin.DelaySec then
                     outSince = nil
                     Rejoin.Busy = true
                     local saved = Rejoin.Last
                     if saved and (saved.world ~= world or os.clock() - Rejoin.LastAt > 600) then saved = nil end
                     Rejoin.Status = "Di luar world, masuk ke " .. world .. "..."
-                    local okE, err = pcall(enterAndResume, world, saved, "Kembali otomatis")
-                    if not okE then
-                        Rejoin.Status = "Error rejoin: " .. tostring(err)
-                        warn("[BoyS] Rejoin error: " .. tostring(err))
-                    end
+                    enterAndResume(world, saved, "Kembali otomatis")
                     Rejoin.Busy = false
-                else
-                    Rejoin.Status = ("Di luar world, masuk ke %s dalam %d detik"):format(
-                        world, math.ceil(Rejoin.DelaySec - (os.clock() - outSince)))
                 end
             end
         end
@@ -14329,7 +14237,6 @@ do (function()
     local function onDisconnect(msg)
         if not (Rejoin.On and Rejoin.Server) or Rejoin.Leaving then return end
         Rejoin.Leaving = true
-        notify("Auto Rejoin", "Disconnect terdeteksi, rejoin ke server...", 4)
         local finderActive = WorldFinder.Busy and WorldFinder.Running and not WorldFinder.Cancelled
         local saved = not finderActive and (Rejoin.Last or (Guard.anyRunning() and Guard.snapshot())) or nil
         local world = finderActive and WorldFinder.Queue and WorldFinder.Queue[WorldFinder.Index]
@@ -14341,13 +14248,7 @@ do (function()
                 spam = saved.spam, splice = saved.splice, pabrik = saved.pabrik, build = saved.build,
                 tx = saved.tx, ty = saved.ty, at = os.time(),
             }
-            pcall(function()
-                local folder = PENDING:match("^(.*)/[^/]+$")
-                if folder and type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(folder) then
-                    makefolder(folder)
-                end
-                writefile(PENDING, HttpService:JSONEncode(data))
-            end)
+            pcall(function() writefile(PENDING, HttpService:JSONEncode(data)) end)
         end
         local queued
         if finderActive and WorldFinder.armTeleport then queued = WorldFinder.armTeleport()
@@ -14356,16 +14257,12 @@ do (function()
         Hook.send("rejoin", "Disconnect dari server (" .. tostring(msg) .. "). Rejoin ke " .. (world ~= "" and world or "game"))
         task.spawn(function()
             task.wait(Rejoin.DelaySec)
-            local tries = 0
-            while alive() and tries < 6 do
-                tries += 1
+            while alive() do
                 pcall(function()
                     TeleportService:Teleport(game.PlaceId, LocalPlayer, (world ~= "") and { world = world } or nil)
                 end)
                 task.wait(15) -- belum pindah: coba lagi
             end
-            -- masih hidup setelah 6x coba = bukan disconnect asli: buka kunci supaya rejoin world tetap jalan
-            if alive() then Rejoin.Leaving = false end
         end)
     end
 
@@ -14373,28 +14270,6 @@ do (function()
         table.insert(Connections, GuiService.ErrorMessageChanged:Connect(function(msg)
             if alive() and type(msg) == "string" and msg ~= "" then onDisconnect(msg) end
         end))
-    end)
-    -- Cadangan: prompt error Roblox ("Disconnected", kick, koneksi putus)
-    task.spawn(function()
-        local okG, overlay = pcall(function()
-            local core = game:GetService("CoreGui")
-            return core:WaitForChild("RobloxPromptGui", 30):WaitForChild("promptOverlay", 30)
-        end)
-        if not okG or not overlay then return end
-        local function check(child)
-            if alive() and child and child.Name == "ErrorPrompt" then
-                local msg = "Disconnected"
-                pcall(function()
-                    local label = child:FindFirstChild("MessageArea", true)
-                    label = label and label:FindFirstChild("ErrorFrame", true)
-                    label = label and label:FindFirstChild("ErrorMessage", true)
-                    if label and label.Text ~= "" then msg = label.Text end
-                end)
-                onDisconnect(msg)
-            end
-        end
-        table.insert(Connections, overlay.ChildAdded:Connect(check))
-        for _, child in ipairs(overlay:GetChildren()) do check(child) end
     end)
 
     -- ===== setelah execute: lanjutkan dari catatan rejoin =====
@@ -14418,7 +14293,7 @@ do (function()
             if not Refs.World then pcall(reconnectFn) end
             if Refs.World and not tried and os.clock() - t0 > 12 then
                 tried = true
-                enterSmart(saved.world)
+                Guard.enterWorld(saved.world)
             end
             task.wait(2)
         end
