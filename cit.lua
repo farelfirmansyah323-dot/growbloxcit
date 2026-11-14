@@ -1018,7 +1018,7 @@ local Pabrik = {
     Harvested = 0,
     Planted = 0,
     Dropped = 0,
-    HarvestWidth = 5,     -- total 5 tile horizontal: 2 kiri, tengah, 2 kanan
+    Reach = 5,            -- jangkauan panen Auto Rotasi dari pusat karakter (tile)
     Skip = {},
     Status = "-",
     Traveling = false,
@@ -6224,8 +6224,6 @@ local function farmerWorkInReach(s)
     -- Auto Rotasi memakai radius panen tersendiri dari pusat karakter.
     local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.08)
     local cx, cy = s.x, s.y - 0.475
-    local centerX = floor(cx)
-    local halfWidth = math.floor(((FC.harvestWidth or 0) - 1) / 2)
     local now = os.clock()
     local st = workspace:GetServerTimeNow()
     local doPlant = FC.plant and fcSeeds() > 0
@@ -6233,7 +6231,7 @@ local function farmerWorkInReach(s)
     local bx, by = floor(s.x), floor(cy)
     for ty = math.max(0, floor(cy - R - 0.5)), math.min(floor(cy + R + 0.5), w.h - 1) do
         for tx = math.max(0, floor(cx - R - 0.5)), math.min(floor(cx + R + 0.5), W - 1) do
-            if (not FC.harvestWidth or abs(tx - centerX) <= halfWidth) and stateReaches(s, tx, ty, R) then
+            if stateReaches(s, tx, ty, R) then
                 local idx = ty * W + tx
                 if not skipped(FC.skip, idx, now) then
                     local id = fgIdAt(tx, ty)
@@ -6259,6 +6257,17 @@ local function farmerWorkInReach(s)
         if FC.topDown and a.y ~= b.y then return a.y < b.y end
         if a.x ~= b.x then return a.x < b.x end
         return a.y < b.y
+    end
+    -- Auto Rotasi: kerjakan satu baris panen pada satu waktu.
+    -- Pilih baris paling atas yang punya pohon siap dalam jangkauan;
+    -- bila belum ada yang siap di baris atas, baris siap berikutnya otomatis dipilih.
+    if FC.topDown and #harvest > 0 then
+        local rowY = harvest[1].y
+        local sameRow = {}
+        for _, tile in ipairs(harvest) do
+            if tile.y == rowY then sameRow[#sameRow + 1] = tile end
+        end
+        harvest = sameRow
     end
     table.sort(harvest, byX)
     table.sort(plant, byX)
@@ -6315,14 +6324,14 @@ local function farmerScan(px, py, maxN, filter)
     local nextReady = nil
     local doPlant = FC.plant and fcSeeds() > 0
     local rows = {} -- [y] = daftar tempat tanam di baris itu
+    local bestHarvestRow = nil -- Auto Rotasi hanya mengambil satu baris siap per perjalanan
     local scanned = 0
     for y = 0, H - 1 do
         local frow, below = w.fg[y], w.fg[y + 1]
         for x = 0, W - 1 do
             local id = frow and frow[x] or 0
             if id ~= 0 then
-                if (not FC.harvestWidth or abs(x - px) <= math.floor((FC.harvestWidth - 1) / 2))
-                    and fcHarvestOk(x, y) and (not FC.only or id == FC.only) then
+                if fcHarvestOk(x, y) and (not FC.only or id == FC.only) then
                     local ra = treeReadyAt(x, y, id)
                     if ra and st >= ra then
                         local idx = y * W + x
@@ -6331,10 +6340,12 @@ local function farmerScan(px, py, maxN, filter)
                                 skipTile(FC.skip, idx, 60)
                             else
                                 local dx, dy = x - px, (y - py) * 1.3
-                                -- Auto Rotasi: prioritas Y terkecil (baris atas), lalu X kiri-kanan.
-                                local d = FC.topDown and (y * W + x) or (dx * dx + dy * dy)
-                                if #best < maxN or d < best[#best].d then
+                                -- Auto Rotasi: pilih baris paling atas yang memiliki pohon siap,
+                                -- lalu selesaikan baris itu kiri ke kanan sebelum pindah ke bawah.
+                                local d = FC.topDown and x or (dx * dx + dy * dy)
+                                if not FC.topDown or bestHarvestRow == nil or y == bestHarvestRow then
                                     if canWorkAt(x, y) then
+                                        if FC.topDown then bestHarvestRow = y end
                                         local pos = #best + 1
                                         while pos > 1 and best[pos - 1].d > d do pos -= 1 end
                                         table.insert(best, pos, { x = x, y = y, idx = idx, d = d, kind = "harvest" })
@@ -6349,7 +6360,7 @@ local function farmerScan(px, py, maxN, filter)
                         nextReady = ra - st
                     end
                 end
-            elseif doPlant and (not FC.harvestWidth or abs(x - px) <= math.floor((FC.harvestWidth - 1) / 2)) then
+            elseif doPlant then
                 local b = below and below[x] or 0
                 local idx = y * W + x
                 if b ~= 0 and fcPlantOk(idx) and not skipped(FC.skip, idx, now) then
@@ -6474,7 +6485,7 @@ local function fieldStep()
     Move.AirAt = nil
     releaseInput()
     if farmerWorkInReach(s) > 0 then return "work" end
-    -- Jangkauan horizontal Auto Rotasi dibatasi 5 kolom: 2 kiri, tengah, 2 kanan.
+    -- Radius pencarian target panen sama dengan radius kerja di sekitar karakter.
     local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.35)
     local useBlock = scaffoldId() ~= nil
     local sx, sy = startNode(s)
@@ -7097,8 +7108,7 @@ local function pabrikCfg(o, harvest, plant)
     return {
         run = o.live,
         harvest = harvest,
-        harvestWidth = Pabrik.HarvestWidth or 5,
-        harvestReach = harvest and 2.5 or nil,
+        harvestReach = harvest and (Pabrik.Reach or 5) or nil,
         plant = plant and invCount(o.seed) > 0,
         seed = o.seed,
         skip = Pabrik.Skip,
