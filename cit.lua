@@ -6373,7 +6373,23 @@ local function farmerScan(px, py, maxN, filter)
             if not FC.run() or not alive() then break end
         end
     end
-    if #best > 0 or not doPlant then return best, nextReady end
+    -- Auto Rotasi: proses SATU baris panen pada satu waktu.
+    -- Jangan kirim target dari baris bawah dalam grup yang sama, karena A* bisa
+    -- memilih target yang lebih dekat dan membuat panen terlihat selang-seling.
+    if #best > 0 then
+        if FC.topDown then
+            local priorityY = best[1].y
+            local rowOnly = {}
+            for _, t in ipairs(best) do
+                if t.y == priorityY then
+                    rowOnly[#rowOnly + 1] = t
+                end
+            end
+            best = rowOnly
+        end
+        return best, nextReady
+    end
+    if not doPlant then return best, nextReady end
 
     -- tanam rapi: baris yang sedang dikerjakan dulu, lalu baris terdekat
     local lock = FC.row and FC.row.y
