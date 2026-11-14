@@ -6235,7 +6235,8 @@ local function farmerWorkInReach(s)
                 local idx = ty * W + tx
                 if not skipped(FC.skip, idx, now) then
                     local id = fgIdAt(tx, ty)
-                    if id ~= 0 and fcHarvestOk(tx, ty) and (not FC.only or id == FC.only) then
+                    if id ~= 0 and fcHarvestOk(tx, ty) and (not FC.only or id == FC.only)
+                        and (not FC.threeTile or abs(tx - floor(cx)) <= 1) then
                         local ra = treeReadyAt(tx, ty, id)
                         if ra and st >= ra and Move.los(bx, by, tx, ty) then
                             if canWorkAt(tx, ty) then
@@ -7108,7 +7109,9 @@ local function pabrikCfg(o, harvest, plant)
     return {
         run = o.live,
         harvest = harvest,
-        harvestReach = harvest and (Pabrik.Reach or 5) or nil,
+        -- Panen 3 tile sejajar: kiri, tengah (posisi karakter), kanan.
+        harvestReach = harvest and 1 or nil,
+        threeTile = harvest,
         plant = plant and invCount(o.seed) > 0,
         seed = o.seed,
         skip = Pabrik.Skip,
