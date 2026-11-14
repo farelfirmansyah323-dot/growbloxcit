@@ -1140,17 +1140,16 @@ local DropFailUntil = {}   -- drop yang ditolak, dicoba lagi nanti
 
 local UI = { Tabs = {}, DropdownTabs = {}, PendingDropdowns = {} }
 UI.Palette = {
-    -- Dark Blue Neon: kontras lembut, tanpa warna merah yang terlalu mencolok.
-    Background = Color3.fromHex("080D18"),
-    Panel = Color3.fromHex("101A2B"),
-    Surface = Color3.fromHex("17243A"),
-    Border = Color3.fromHex("263D5E"),
-    Text = Color3.fromHex("EAF3FF"),
-    Muted = Color3.fromHex("91A8C5"),
-    Icon = Color3.fromHex("8CC8FF"),
-    Accent = Color3.fromHex("38A7FF"),
-    Action = Color3.fromHex("176BC1"),
-    Stop = Color3.fromHex("243B59"),
+    Background = Color3.fromHex("080E1B"),
+    Panel = Color3.fromHex("101B2D"),
+    Surface = Color3.fromHex("172740"),
+    Border = Color3.fromHex("294666"),
+    Text = Color3.fromHex("EDF6FF"),
+    Muted = Color3.fromHex("9BB2CC"),
+    Icon = Color3.fromHex("91CFFF"),
+    Accent = Color3.fromHex("39A9FF"),
+    Action = Color3.fromHex("176FC2"),
+    Stop = Color3.fromHex("25415F"),
 }
 function UI.tabVisible(title)
     if not UI.Window then return true end
@@ -10915,15 +10914,15 @@ end)() end
 Session.InitStep = "membuat menu WindUI"
 local Window = I18N.wrap(WindUI:CreateWindow({
     Title = "BoyS",
-    Icon = "sprout",
-    Author = "Simple Edition",
+    Icon = "layout-dashboard",
+    Author = "CONTROL CENTER",
     Folder = "BoySOpus",
-    Size = UDim2.fromOffset(610, 410),
-    MinSize = Vector2.new(460, 310),
+    Size = UDim2.fromOffset(740, 510),
+    MinSize = Vector2.new(520, 360),
     Theme = "BoyS Blue",
     Transparent = false,
-    SideBarWidth = 142,
-    ElementsRadius = 8,
+    SideBarWidth = 184,
+    ElementsRadius = 9,
     ToggleKey = Enum.KeyCode.Insert,  -- PC: tekan Insert untuk buka/tutup menu
 }))
 UI.Window = Window
@@ -10931,7 +10930,7 @@ UI.Window = Window
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
     Window:EditOpenButton({
-        Title = "BoyS",
+        Title = "BoyS HUB",
         Icon = "sprout",
         Color = ColorSequence.new(UI.Palette.Accent, UI.Palette.Action),
         Draggable = true,
@@ -10950,29 +10949,29 @@ do
     local shortcuts = {}
     for _, group in ipairs({
         { Tabs = {
-            { "Mulai", "Mulai", "house" },
+            { "Mulai", "Dashboard", "layout-dashboard" },
         } },
-        { Title = "Farming", Icon = "sprout", Opened = true, Tabs = {
+        { Title = "FARMING", Icon = "sprout", Opened = true, Tabs = {
             { "Farm", "Auto Farm", "pickaxe", "Pilih block dan tile untuk farm" },
             { "Farmer", "Tanam & Panen", "leaf", "Pilih seed untuk tanam atau panen" },
             { "Clear World", "Pecah Block", "eraser", "Pecahkan satu jenis block atau bersihkan world" },
             { "Auto Drop", "Auto Drop", "package-open", "Buang item penuh ke tile pilihan" },
             { "Dirt Farm", "Auto Dirt Farm", "shovel" },
         } },
-        { Title = "Produksi", Icon = "factory", Tabs = {
+        { Title = "PRODUCTION", Icon = "factory", Tabs = {
             { "Splice", "Splice", "git-merge" },
             { "Lahan", "Bangun Lahan", "layout-grid" },
             { "Auto Rotasi", "Auto Rotasi", "factory" },
             { "Vending", "Vending", "store" },
         } },
-        { Title = "Alat", Icon = "wrench", Tabs = {
+        { Title = "TOOLS", Icon = "wrench", Tabs = {
             { "World Finder", "World Finder", "globe" },
             { "Tas", "Inventori", "backpack" },
             { "Growscan", "Info & Statistik", "scan-search" },
             { "Bonus", "Bonus", "gift" },
             { "Auto Chat", "Auto Chat", "message-circle" },
         } },
-        { Title = "Setelan", Icon = "settings", Tabs = {
+        { Title = "SYSTEM", Icon = "settings", Tabs = {
             { "Pengaturan", "Umum", "sliders-horizontal", "Hubungkan game, atur config dan bahasa" },
             { "Penjaga", "Penjaga", "shield" },
             { "Discord", "Discord", "bell" },
@@ -10996,7 +10995,11 @@ do
 
     safe(function()
         local home = UI.Tabs.Mulai
-        UI.HomeStatus = home:Paragraph({ Title = "Status sesi", Desc = "-" })
+        home:Paragraph({
+            Title = "BOYS  |  CONTROL CENTER",
+            Desc = "Dashboard utama • Akses cepat ke fitur dan pengaturan script.",
+        })
+        UI.HomeStatus = home:Paragraph({ Title = "SESSION STATUS", Desc = "Memuat status..." })
         for _, spec in ipairs(shortcuts) do
             local tab, parent, title, icon, desc = table.unpack(spec)
             home:Button({ Title = title, Icon = icon, Desc = desc, Callback = function()
