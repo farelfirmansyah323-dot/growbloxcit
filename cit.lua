@@ -1140,16 +1140,16 @@ local DropFailUntil = {}   -- drop yang ditolak, dicoba lagi nanti
 
 local UI = { Tabs = {}, DropdownTabs = {}, PendingDropdowns = {} }
 UI.Palette = {
-    Background = Color3.fromHex("080E1B"),
-    Panel = Color3.fromHex("101B2D"),
-    Surface = Color3.fromHex("172740"),
-    Border = Color3.fromHex("294666"),
-    Text = Color3.fromHex("EDF6FF"),
-    Muted = Color3.fromHex("9BB2CC"),
-    Icon = Color3.fromHex("91CFFF"),
-    Accent = Color3.fromHex("39A9FF"),
-    Action = Color3.fromHex("176FC2"),
-    Stop = Color3.fromHex("25415F"),
+    Background = Color3.fromHex("140B10"),
+    Panel = Color3.fromHex("201017"),
+    Surface = Color3.fromHex("2D1720"),
+    Border = Color3.fromHex("69404C"),
+    Text = Color3.fromHex("FFF0F2"),
+    Muted = Color3.fromHex("D7B4BF"),
+    Icon = Color3.fromHex("F9BCC9"),
+    Accent = Color3.fromHex("FA526A"),
+    Action = Color3.fromHex("AA2944"),
+    Stop = Color3.fromHex("702430"),
 }
 function UI.tabVisible(title)
     if not UI.Window then return true end
@@ -9563,7 +9563,7 @@ function Build.breakSession(o)
     end
     if not o.live() then return false end
     local before = invCount(o.seed)
-    local want = math.max(1, Build.freeSpots(o) - before)
+    local want = math.max(1, Build.freeSpots(o))
     State.Override = { offsets = Build.Tiles, block = o.block, mode = "Place + Break" }
     State.Quiet = true
     table.clear(HitCount)
@@ -9652,7 +9652,7 @@ function Build.bootstrap(o)
     -- 1 sesi panjang (seperti Pabrik): pasang-pecah terus sampai seed cukup untuk mengisi
     -- semua tempat kosong di baris produksi, atau block habis. Tidak diselingi panen / tanam.
     local before = invCount(o.seed)
-    local want = math.max(1, Build.freeSpots(o) - before)
+    local want = math.max(1, Build.freeSpots(o))
     for _ = 1, 300 do
         if not o.live() or (invCount(o.block) <= 0 and fgIdAt(spot.x, spot.y) == 0) then break end
         if invCount(o.seed) >= before + want then break end
@@ -9687,9 +9687,13 @@ function Build.bootstrap(o)
     return invCount(o.seed) > before
 end
 
--- 1 langkah produksi. Urutan fase: PANEN -> BREAK -> TANAM -> TUNGGU.
--- Setelah panen selesai, jangan langsung menanam: kumpulkan seed lewat break dulu
--- bila seed belum cukup untuk mengisi petak kosong, baru lanjut tanam.
+-- 1 langkah produksi. Hasil: "work" | "move" | "wait" | "next" | "idle" (+ detik pohon siap, jumlah pohon siap)
+-- Siklus berurutan (seperti Pabrik), tiap fase diselesaikan dulu, tidak saling potong:
+--   PANEN : panen SEMUA pohon siap di lahan (baris per baris), hasilnya diambil   -> TANAM
+--   TANAM : isi semua tempat kosong di baris produksi                              -> BREAK / TUNGGU
+--   BREAK : seed habis & baris belum penuh: pasang-pecah di kanan karakter sampai
+--           seed cukup untuk mengisi baris (atau block habis)                      -> TANAM
+--   TUNGGU: tunggu pohon siap SEKALIGUS (tidak ada lagi yang siap dalam 20 dtk)   -> PANEN
 function Build.produceStep(o)
     o.phase = o.phase or "panen"
     if o.phase == "panen" then
@@ -9697,43 +9701,45 @@ function Build.produceStep(o)
         local r = fieldStep()
         if r == "idle" then
             if o.plan then o.harvestRetryAt = os.clock() + 3 end
-            o.phase = (o.plan and o.plan.placeOnly) and "tanam" or "break"
+            o.phase = "tanam"
             return "next"
         end
         return r
     end
-    if o.phase == "break" then
-        -- Break dilakukan sebelum tanam. Jika seed sudah cukup, lewati sesi break.
-        local need = Build.freeSpots(o)
-        if not (o.plan and o.plan.placeOnly) and need > invCount(o.seed) and invCount(o.block) > 0 then
-            o.bootAt = os.clock()
-            Build.bootstrap(o)
-        end
-        o.phase = "tanam"
-        return "work"
-    end
     if o.phase == "tanam" then
-        -- Tanam setelah sesi break selesai.
+        -- Dirt Farm terus cari petak kosong meski sebagian pohon sudah tumbuh.
         if invCount(o.seed) > 0 and (o.plan or Build.freeSpots(o) > 0) then
             FC = Build.cfg(o, false, true)
             local r = fieldStep()
             if r ~= "idle" then return r end
         end
-        o.phase = "tunggu"
+        if not (o.plan and o.plan.placeOnly) and not o.broke and Build.freeSpots(o) > 0
+            and invCount(o.seed) <= 0 and invCount(o.block) > 0 then
+            o.phase = "break"
+        else
+            o.phase, o.broke = "tunggu", nil
+        end
         return "next"
+    end
+    if o.phase == "break" then
+        o.broke = true -- 1 sesi break tiap putaran
+        o.bootAt = os.clock()
+        Build.bootstrap(o)
+        o.phase = "tanam"
+        return "work"
     end
     -- TUNGGU
     local n, nxt = readyTreeCount(false, o.seed, o.plan)
     if n > 0 and ((o.plan and os.clock() >= (o.harvestRetryAt or 0))
         or (not o.plan and (nxt == nil or nxt > 20))) then
-        o.phase = "panen"
+        o.phase = "panen" -- pohon siap sekaligus
         return "next"
     end
     if n == 0 and nxt == nil and Build.freeSpots(o) > 0 and os.clock() - (o.retryAt or 0) > 10 then
-        -- Jika belum ada pohon tumbuh, coba isi petak yang kosong lagi.
+        -- tidak ada pohon tumbuh sama sekali (break tadi tidak dapat seed): tanam / break lagi
         if invCount(o.seed) > 0 or (invCount(o.block) > 0 and os.clock() - (o.bootAt or 0) > 5) then
             o.retryAt = os.clock()
-            o.phase = "break"
+            o.phase = "tanam"
             return "next"
         end
     end
@@ -10863,7 +10869,7 @@ do
     }) do
         theme[key] = color
     end
-    theme.Name = "BoyS Blue"
+    theme.Name = "BoyS Red"
     WindUI:AddTheme(theme)
     WindUI:SetTheme(theme.Name)
     pcall(function() WindUI:SetFont(Font.fromEnum(Enum.Font.Roboto).Family) end)
@@ -10908,15 +10914,15 @@ end)() end
 Session.InitStep = "membuat menu WindUI"
 local Window = I18N.wrap(WindUI:CreateWindow({
     Title = "BoyS",
-    Icon = "layout-dashboard",
-    Author = "CONTROL CENTER",
+    Icon = "sprout",
+    Author = "v2.0",
     Folder = "BoySOpus",
-    Size = UDim2.fromOffset(740, 510),
-    MinSize = Vector2.new(520, 360),
-    Theme = "BoyS Blue",
+    Size = UDim2.fromOffset(668, 444),
+    MinSize = Vector2.new(485, 330),
+    Theme = "BoyS Red",
     Transparent = false,
-    SideBarWidth = 184,
-    ElementsRadius = 9,
+    SideBarWidth = 166,
+    ElementsRadius = 10,
     ToggleKey = Enum.KeyCode.Insert,  -- PC: tekan Insert untuk buka/tutup menu
 }))
 UI.Window = Window
@@ -10924,7 +10930,7 @@ UI.Window = Window
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
     Window:EditOpenButton({
-        Title = "BoyS HUB",
+        Title = "BoyS v2.0",
         Icon = "sprout",
         Color = ColorSequence.new(UI.Palette.Accent, UI.Palette.Action),
         Draggable = true,
@@ -10943,29 +10949,29 @@ do
     local shortcuts = {}
     for _, group in ipairs({
         { Tabs = {
-            { "Mulai", "Dashboard", "layout-dashboard" },
+            { "Mulai", "Mulai", "house" },
         } },
-        { Title = "FARMING", Icon = "sprout", Opened = true, Tabs = {
+        { Title = "Farming", Icon = "sprout", Opened = true, Tabs = {
             { "Farm", "Auto Farm", "pickaxe", "Pilih block dan tile untuk farm" },
             { "Farmer", "Tanam & Panen", "leaf", "Pilih seed untuk tanam atau panen" },
             { "Clear World", "Pecah Block", "eraser", "Pecahkan satu jenis block atau bersihkan world" },
             { "Auto Drop", "Auto Drop", "package-open", "Buang item penuh ke tile pilihan" },
             { "Dirt Farm", "Auto Dirt Farm", "shovel" },
         } },
-        { Title = "PRODUCTION", Icon = "factory", Tabs = {
+        { Title = "Produksi", Icon = "factory", Tabs = {
             { "Splice", "Splice", "git-merge" },
             { "Lahan", "Bangun Lahan", "layout-grid" },
             { "Auto Rotasi", "Auto Rotasi", "factory" },
             { "Vending", "Vending", "store" },
         } },
-        { Title = "TOOLS", Icon = "wrench", Tabs = {
+        { Title = "Alat", Icon = "wrench", Tabs = {
             { "World Finder", "World Finder", "globe" },
             { "Tas", "Inventori", "backpack" },
             { "Growscan", "Info & Statistik", "scan-search" },
             { "Bonus", "Bonus", "gift" },
             { "Auto Chat", "Auto Chat", "message-circle" },
         } },
-        { Title = "SYSTEM", Icon = "settings", Tabs = {
+        { Title = "Setelan", Icon = "settings", Tabs = {
             { "Pengaturan", "Umum", "sliders-horizontal", "Hubungkan game, atur config dan bahasa" },
             { "Penjaga", "Penjaga", "shield" },
             { "Discord", "Discord", "bell" },
@@ -10989,11 +10995,7 @@ do
 
     safe(function()
         local home = UI.Tabs.Mulai
-        home:Paragraph({
-            Title = "BOYS  |  CONTROL CENTER",
-            Desc = "Dashboard utama • Akses cepat ke fitur dan pengaturan script.",
-        })
-        UI.HomeStatus = home:Paragraph({ Title = "SESSION STATUS", Desc = "Memuat status..." })
+        UI.HomeStatus = home:Paragraph({ Title = "Status sesi", Desc = "-" })
         for _, spec in ipairs(shortcuts) do
             local tab, parent, title, icon, desc = table.unpack(spec)
             home:Button({ Title = title, Icon = icon, Desc = desc, Callback = function()
@@ -14018,7 +14020,7 @@ end)() end
 -- AUTO RECONNECT
 ---------------------------------------------------------------------
 -- How it works:
---   Terlempar dari world (WorldClosed event from server):
+--   Kicked from world (WorldClosed event from server):
 --     snapshot activity -> wait -> re-enter same world -> resume activity.
 --   Disconnected from Roblox server (error prompt shown):
 --     save activity to file -> rejoin game with target world data
@@ -14037,7 +14039,6 @@ local Rejoin = {
     Last = nil,         -- last activity snapshot
     LastAt = 0,
     Busy = false,
-    Leaving = false,
     Count = 0,
     Status = "-",
 }
@@ -14114,21 +14115,20 @@ do (function()
 
     local function hasSavedActivity(saved)
         return saved and (saved.farm or saved.clear or saved.farmer or saved.spam
-            or saved.splice or saved.pabrik or saved.factory or saved.build or saved.vend)
+            or saved.splice or saved.factory or saved.pabrik or saved.build or saved.vend)
     end
 
     local function resume(saved, reason)
-        if type(saved) == "table" and saved.factory and not saved.pabrik then saved.pabrik = saved.factory end
         Guard.afterEnter()
         Rejoin.Count += 1
         if hasSavedActivity(saved) then
-            Rejoin.Status = "Masuk lagi berhasil, melanjutkan aktivitas"
-            notify("Auto Reconnect", reason .. ": melanjutkan aktivitas", 4)
+            Rejoin.Status = "Re-entered successfully, resuming activity"
+            notify("Auto Reconnect", reason .. ": resuming activity", 4)
             Hook.send("rejoin", reason .. " to " .. tostring(saved.world) .. ", activity resumed")
             Guard.resumeSaved(saved)
         else
-            Rejoin.Status = "Berhasil masuk kembali ke " .. tostring(saved and saved.world or "") .. " successfully"
-            notify("Auto Reconnect", reason .. ": kembali ke " .. tostring(saved and saved.world or ""), 4)
+            Rejoin.Status = "Re-entered " .. tostring(saved and saved.world or "") .. " successfully"
+            notify("Auto Reconnect", reason .. ": returned to " .. tostring(saved and saved.world or ""), 4)
             Hook.send("rejoin", reason .. " to " .. tostring(saved and saved.world or ""))
         end
     end
@@ -14146,7 +14146,7 @@ do (function()
             if hopping == true then
                 savePending(world, saved)
                 local queued = queueScript()
-                Rejoin.Status = "Pindah server ke " .. world .. "..." .. (queued and "" or " (script tidak di-queue)")
+                Rejoin.Status = "Server transfer to " .. world .. "..." .. (queued and "" or " (script not queued)")
                 Hook.send("rejoin", reason .. " transfer to " .. world)
                 return true
             end
@@ -14162,11 +14162,11 @@ do (function()
                 end
                 return true
             end
-            Rejoin.Status = ("Gagal masuk ke %s (%d/3): %s"):format(world, try, tostring(err))
+            Rejoin.Status = ("Failed to enter %s (%d/3): %s"):format(world, try, tostring(err))
             task.wait(8)
         end
-        notify("Auto Rejoin", "Gagal masuk ke " .. world, 5)
-        Hook.send("rejoin", "Gagal masuk ke " .. world)
+        notify("Auto Rejoin", "Failed to enter " .. world, 5)
+        Hook.send("rejoin", "Failed to enter " .. world)
         return false
     end
 
@@ -14184,15 +14184,15 @@ do (function()
             local worldBefore = Guard.worldName()
             if Guard.anyRunning() then Guard.stopAll() end
             local text = tostring(msg or ""):gsub("`.", "")
-            Rejoin.Status = "Terlempar dari " .. target .. ". Masuk kembali..."
-            Hook.send("rejoin", "Terlempar dari world " .. target .. (text ~= "" and (" (" .. text .. ")") or ""))
+            Rejoin.Status = "Kicked from " .. target .. ". Re-entering..."
+            Hook.send("rejoin", "Kicked from world " .. target .. (text ~= "" and (" (" .. text .. ")") or ""))
             task.wait(Rejoin.DelaySec + 1.5) -- wait for door/kick transition to finish
             if alive() and Rejoin.On and Guard.worldName() ~= "" and Guard.worldName() == worldBefore then
                 pcall(Guard.leaveWorld)
                 task.wait(1.5)
             end
             if alive() and Rejoin.On then
-                enterAndResume(target, saved, "Masuk kembali")
+                enterAndResume(target, saved, "Re-entering")
             end
             Rejoin.Busy = false
         end)
@@ -14222,12 +14222,12 @@ do (function()
 
     function Rejoin.now()
         if Rejoin.Busy then
-            notify("Auto Rejoin", "Sedang proses masuk world, tunggu dulu", 3)
+            notify("Auto Rejoin", "Already entering a world, please wait", 3)
             return
         end
         local world = Rejoin.targetWorld()
         if world == "" then
-            notify("Auto Rejoin", "World tujuan belum ada. Isi World tujuan atau masuk world dulu", 4)
+            notify("Auto Rejoin", "No target world yet. Fill in 'Target world' or enter a world first", 4)
             return
         end
         Rejoin.Busy = true
@@ -14236,9 +14236,9 @@ do (function()
             if Guard.worldName() ~= "" then
                 if Guard.anyRunning() then saved = Guard.snapshot() end
                 Guard.stopAll()
-                Rejoin.Status = "Keluar world..."
+                Rejoin.Status = "Leaving world..."
                 if not Guard.leaveWorld() then
-                    Rejoin.Status = "Gagal keluar world"
+                    Rejoin.Status = "Failed to leave world"
                     notify("Auto Rejoin", Rejoin.Status, 4)
                     Rejoin.Busy = false
                     return
@@ -14246,7 +14246,7 @@ do (function()
                 task.wait(math.max(2, Rejoin.DelaySec))
             end
             if saved and saved.world ~= world then saved = nil end -- different world: do not resume activity
-            Rejoin.Status = "Masuk ke " .. world .. "..."
+            Rejoin.Status = "Entering " .. world .. "..."
             enterAndResume(world, saved, "Rejoin")
             Rejoin.Busy = false
         end)
@@ -14269,8 +14269,8 @@ do (function()
                     Rejoin.Busy = true
                     local saved = Rejoin.Last
                     if saved and (saved.world ~= world or os.clock() - Rejoin.LastAt > 600) then saved = nil end
-                    Rejoin.Status = "Di luar world, masuk ke " .. world .. "..."
-                    enterAndResume(world, saved, "Kembali otomatis")
+                    Rejoin.Status = "Outside world, entering " .. world .. "..."
+                    enterAndResume(world, saved, "Auto return")
                     Rejoin.Busy = false
                 end
             end
@@ -14292,7 +14292,7 @@ do (function()
         local queued
         if finderActive and WorldFinder.armTeleport then queued = WorldFinder.armTeleport()
         else queued = queueScript() end
-        Rejoin.Status = "Disconnect: mencoba masuk lagi..." .. (queued and "" or " (script tidak di-queue)")
+        Rejoin.Status = "Disconnected: rejoining..." .. (queued and "" or " (script not queued)")
         Hook.send("rejoin", "Disconnected from server (" .. tostring(msg) .. "). Rejoining to " .. (world ~= "" and world or "game"))
         task.spawn(function()
             task.wait(Rejoin.DelaySec)
@@ -14326,7 +14326,7 @@ do (function()
             local function checkPrompt(child)
                 if alive() and child and child.Name == "ErrorPrompt" then
                     local okMsg, errMsg = pcall(function() return GuiService:GetErrorMessage() end)
-                    onDisconnect((okMsg and errMsg and errMsg ~= "") and errMsg or "Prompt koneksi terputus")
+                    onDisconnect((okMsg and errMsg and errMsg ~= "") and errMsg or "Connection error prompt")
                 end
             end
             table.insert(Connections, overlay.ChildAdded:Connect(checkPrompt))
@@ -14358,7 +14358,7 @@ do (function()
         if saved.user and saved.user ~= LocalPlayer.UserId then return end
         if os.time() - (tonumber(saved.at) or 0) > 15 * 60 then return end -- expired
         Rejoin.Busy = true
-        Rejoin.Status = "Rejoin: menunggu masuk " .. saved.world
+        Rejoin.Status = "Rejoin: waiting to enter " .. saved.world
         local t0 = os.clock()
         local lastTryAt, tries = -10, 0
         while alive() and os.clock() - t0 < 60 do
@@ -14376,7 +14376,7 @@ do (function()
             task.wait(1)
             resume(saved, "Rejoin server")
         else
-            Rejoin.Status = "Rejoin: gagal masuk " .. saved.world
+            Rejoin.Status = "Rejoin: failed to enter " .. saved.world
             Hook.send("rejoin", Rejoin.Status)
         end
         Rejoin.Busy = false
@@ -14384,7 +14384,7 @@ do (function()
 end)() end
 
 Config.add("Reconnect", Rejoin, { "On", "World", "Server", "DelaySec", "ScriptUrl", "Keep", "Target" })
-Config.add("Discord", Hook, { "On", "Url", "Penjaga", "Stop", "Full", "Bonus", "Rejoin", "Pabrik", "Finder", "ReportMin" })
+Config.add("Discord", Hook, { "On", "Url", "Guard", "Stop", "Full", "Bonus", "Rejoin", "Pabrik", "Finder", "ReportMin" })
 
 -- WORLD FINDER: pindah world dan verifikasi seluruh foreground sebelum menyebutnya tanpa lock.
 do
