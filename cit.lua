@@ -3,15 +3,15 @@ if type(getgenv) == "function" then
     local ok, globals = pcall(getgenv)
     if ok and type(globals) == "table" then G = globals end
 end
-for _, key in ipairs({ "__n4thOpus", "__GTFarm" }) do -- __GTFarm = nama versi lama
+for _, key in ipairs({ "__BoySOpus", "__n4thOpus", "__GTFarm" }) do -- __GTFarm = nama versi lama
     if G[key] and G[key].Cleanup then pcall(G[key].Cleanup) end
     G[key] = nil
 end
 local Session = {}
 Session.Build = "2026-11-12-movement-reconnect-1"
-G.__n4thOpus = Session
+G.__BoySOpus = Session
 local function alive()
-    return G.__n4thOpus == Session
+    return G.__BoySOpus == Session
 end
 -- Alias executor tetap lokal agar lingkungan game tidak ikut berubah.
 local getgc = getgc or get_gc_objects
@@ -78,12 +78,12 @@ function Session.download(url)
         if valid then return valid end
         lastError = reason
     end
-    error("[n4th] Unduh gagal: " .. tostring(lastError), 0)
+    error("[BoyS] Unduh gagal: " .. tostring(lastError), 0)
 end
-print("[n4th] Memuat build " .. Session.Build)
+print("[BoyS] Memuat build " .. Session.Build)
 task.delay(45, function()
     if alive() and not Session.Ready then
-        warn("[n4th] Masih memuat: " .. tostring(Session.InitStep)
+        warn("[BoyS] Masih memuat: " .. tostring(Session.InitStep)
             .. ". Kirim baris ini jika menu belum muncul.")
     end
 end)
@@ -119,12 +119,12 @@ do
         task.wait(0.1)
         LocalPlayer = Players.LocalPlayer
     end
-    assert(LocalPlayer, "[n4th] LocalPlayer belum tersedia. Masuk ke game lalu execute ulang.")
+    assert(LocalPlayer, "[BoyS] LocalPlayer belum tersedia. Masuk ke game lalu execute ulang.")
 
     local function requiredChild(parent, name)
         Session.InitStep = parent:GetFullName() .. "/" .. name
         local child = parent:FindFirstChild(name) or parent:WaitForChild(name, 15)
-        assert(child, "[n4th] Tidak menemukan " .. Session.InitStep .. " setelah 15 detik.")
+        assert(child, "[BoyS] Tidak menemukan " .. Session.InitStep .. " setelah 15 detik.")
         return child
     end
     PlayerGui = requiredChild(LocalPlayer, "PlayerGui")
@@ -395,7 +395,7 @@ do
         Session.ItemDBSource = found.Value
         Session.Modules.ItemDB = "runtime:ItemDB"
         Session.ModuleScan.DatabaseResolution = "referensi pukul, pasang, dan world aktif"
-        print("[n4th] ItemDB dikenali dari referensi game aktif.")
+        print("[BoyS] ItemDB dikenali dari referensi game aktif.")
         return true
     end
     local function databaseFromActions()
@@ -623,7 +623,7 @@ do
         end
         if value then
             Session.Modules[name] = shapedObject and shapedObject:GetFullName() or "runtime:" .. name
-            print("[n4th] " .. name .. " dikenali dari data: " .. Session.Modules[name])
+            print("[BoyS] " .. name .. " dikenali dari data: " .. Session.Modules[name])
             return true, value, shapedObject
         end
         if object then
@@ -641,11 +641,11 @@ do
                 return true, recovered, recoveredObject
             end
         end
-        local message = "[n4th] Modul " .. name .. ": " .. (reason or "tidak ditemukan")
+        local message = "[BoyS] Modul " .. name .. ": " .. (reason or "tidak ditemukan")
         if required then
             Session.BootstrapReport = report()
-            warn("[n4th] Struktur client: " .. Session.BootstrapReport)
-            warn(("[n4th] Pemindaian data: tabel=%d | export=%d | gagal=%d | terakhir=%s"):format(
+            warn("[BoyS] Struktur client: " .. Session.BootstrapReport)
+            warn(("[BoyS] Pemindaian data: tabel=%d | export=%d | gagal=%d | terakhir=%s"):format(
                 Session.ModuleScan.Tables, Session.ModuleScan.Loaded, Session.ModuleScan.Errors, tostring(Session.ModuleScan.LastError)))
             error(message .. ". Jalankan n4th-diagnose.lua untuk membaca struktur client terbaru.", 0)
         end
@@ -693,7 +693,7 @@ do
         end)
         Session.MovementScan = false
         if ok then return value end
-        warn("[n4th] Pencarian kontrol gerak: " .. tostring(value))
+        warn("[BoyS] Pencarian kontrol gerak: " .. tostring(value))
     end
     function Session.resolveItems()
         if Session.ItemDBSource then return true end
@@ -723,7 +723,7 @@ do
             if not MenuModOk then MenuModOk, MenuModule = loadModule(GameGui, "WorldMenu", false) end
         end)
         Session.ItemScan = false
-        if not ok then warn("[n4th] Pencarian ItemDB: " .. tostring(reason)) end
+        if not ok then warn("[BoyS] Pencarian ItemDB: " .. tostring(reason)) end
         return Session.ItemDBSource ~= nil
     end
     Session.InitStep = "modul game siap"
@@ -756,9 +756,9 @@ do
 
     -- WindUI 1.6.66 memakai remote GetIcons pada jalur tanpa writefile. GrowBlox tidak memilikinya.
     local prelude = [[
-local __n4thGui, __n4thIcons = ...
+local __BoySGui, __BoySIcons = ...
 local writefile, cloneref, clonereference
-local function gethui() return __n4thGui end
+local function gethui() return __BoySGui end
 local function protectgui() end
 ]]
     local icons = {
@@ -815,7 +815,7 @@ local function protectgui() end
         if not first or source:find("m=a.load'b'", last + 1, true) then
             return nil, "titik inisialisasi ikon WindUI 1.6.66 tidak cocok"
         end
-        return prelude .. source:sub(1, first - 1) .. "m=__n4thIcons" .. source:sub(last + 1)
+        return prelude .. source:sub(1, first - 1) .. "m=__BoySIcons" .. source:sub(last + 1)
     end
     local function downloadWindUI()
         local lastError = "respons kosong"
@@ -841,11 +841,11 @@ local function protectgui() end
                         lastError = reason
                     end
                 end
-                warn("[n4th] Unduh WindUI gagal: " .. url .. " | " .. lastError)
+                warn("[BoyS] Unduh WindUI gagal: " .. url .. " | " .. lastError)
             end
             if attempt < 2 then task.wait(1) end
         end
-        error("[n4th] WindUI gagal diunduh setelah mencoba kedua URL: " .. lastError, 0)
+        error("[BoyS] WindUI gagal diunduh setelah mencoba kedua URL: " .. lastError, 0)
     end
 
     -- Inisialisasi hanya sekali, setelah respons berhasil dikompilasi.
@@ -913,7 +913,7 @@ local Misc = {
     UpHeld = false,   -- tombol ▲ di layar ditahan
     DownHeld = false, -- tombol ▼ di layar ditahan
     CustomName = true,          -- watermark nama (selalu aktif, mati hanya saat script ditutup)
-    NameText = "https://dsc.gg/nath",  -- teks watermark
+    NameText = "BoyS",  -- teks watermark
 }
 
 -- Auto Clear World
@@ -1020,6 +1020,8 @@ local Pabrik = {
     Planted = 0,
     Dropped = 0,
     Skip = {},
+    Got = {},            -- [id seed] = true: pohon yang pernah dipanen (block-nya ikut diambil kalau floating)
+    Harvesting = false,  -- true saat fase panen/tanam: auto collect untuk break dimatikan (collect panen tetap)
     Status = "-",
     Traveling = false,
     Home = "",
@@ -1200,7 +1202,7 @@ function UI.runJobs()
         if job and now >= job.at then
             UI.Jobs[key] = nil
             local ok, err = pcall(job.fn)
-            if not ok then warn("[n4th] UI job " .. tostring(key) .. ": " .. tostring(err)) end
+            if not ok then warn("[BoyS] UI job " .. tostring(key) .. ": " .. tostring(err)) end
         end
     end
 end
@@ -1658,7 +1660,7 @@ I18N.EN = {
     ["Isi URL webhook dulu"] = "Fill in the webhook URL first",
     ["Pesan tes masuk antrian"] = "Test message queued",
     ["URL webhook tidak valid"] = "Invalid webhook URL",
-    ["Tes notifikasi dari n4th"] = "Test notification from n4th",
+    ["Tes notifikasi dari BoyS"] = "Test notification from BoyS",
     -- pilihan dropdown
     ["Kiri → Kanan"] = "Left → Right", ["Semua pemain"] = "All players", ["Semua"] = "All",
     ["Depan"] = "Front", ["Break saja"] = "Break only", ["Place saja"] = "Place only",
@@ -2032,12 +2034,12 @@ end
 --      SEBELUM UI dibuat, jadi tombol & slider langsung tampil sesuai config.
 --   2. Tiap 3 detik pengaturan sekarang dibandingkan dengan yang terakhir disimpan.
 --      Ada yang berubah -> langsung disimpan (auto save).
---   3. File per akun: workspace/n4thOpus/config_<UserId>.json
+--   3. File per akun: workspace/BoySOpus/config_<UserId>.json
 --   Yang tidak disimpan: tombol jalan (Auto Farm / Clear / Farmer / Chat), fly & inf jump.
 local Config = {
     AutoSave = true,
     Paused = false,      -- true setelah reset (supaya file tidak dibuat lagi)
-    Folder = "n4thOpus",
+    Folder = "BoySOpus",
     Data = {},           -- isi file saat execute
     List = {},           -- tabel pengaturan yang disimpan
     LastJson = nil,
@@ -2212,7 +2214,7 @@ Config.add("Pabrik", Pabrik, {
 Config.add("Bahasa", I18N, { "Saved", "Ask", "Chosen" })
 do
     local teleport = game:GetService("TeleportService")
-    local key = "n4th.language.v1"
+    local key = "BoyS.language.v1"
     local function valid(lang) return lang == "id" or lang == "en" end
     local saved = Config.Data.Bahasa
     if type(saved) == "table" and valid(saved.Saved) and saved.Chosen == nil then
@@ -2225,7 +2227,7 @@ do
         I18N.Saved, I18N.Chosen, I18N.Ask = preference.Saved, true, preference.Ask == true
     end
     -- Saat Finder memuat script kembali, dialog tidak boleh menahan kelanjutan antrean.
-    local pendingOK, pending = pcall(teleport.GetTeleportSetting, teleport, "n4th.finder.teleport.v1")
+    local pendingOK, pending = pcall(teleport.GetTeleportSetting, teleport, "BoyS.finder.teleport.v1")
     I18N.TeleportResume = pendingOK and type(pending) == "table" and pending.Active == true
         and pending.Schema == 1 and pending.User == LocalPlayer.UserId and pending.Universe == game.GameId
         and pending.Job ~= game.JobId and type(pending.At) == "number"
@@ -2289,7 +2291,7 @@ do (function()
     -- jenis: "penjaga" | "stop" | "full" | "bonus" | "rejoin" | "report" | "test"
     function Hook.send(kind, text)
         -- Pengujian lokal tidak mengirim notifikasi ke Discord; config pengguna tetap utuh.
-        if G.__n4thLiveTest and G.__n4thLiveTest.Running then return end
+        if G.__BoySLiveTest and G.__BoySLiveTest.Running then return end
         if not Hook.On or not Hook.valid(Hook.Url) then return end
         local allow = kind == "test" or kind == "report"
             or (kind == "penjaga" and Hook.Penjaga) or (kind == "stop" and Hook.Stop)
@@ -2311,7 +2313,7 @@ do (function()
                     Hook.Status = "Executor tidak punya fungsi request"
                 else
                     local body = HttpService:JSONEncode({
-                        username = "n4th",
+                        username = "BoyS",
                         content = ("**[%s]** %s"):format(LocalPlayer.Name, text),
                     })
                     local ok, res = pcall(req, {
@@ -2939,7 +2941,7 @@ local function sendSetTile(layer, x, y, id, skipLocalPrediction)
     if Refs.SetTile then
         local ok, err = pcall(Refs.SetTile, layer, x, y, id, false, false)
         if ok then return true end
-        warn("[n4th] setTile game gagal, pakai remote langsung: " .. tostring(err))
+        warn("[BoyS] setTile game gagal, pakai remote langsung: " .. tostring(err))
     end
     if NetOk and type(Net) == "table" and type(Net.tile) == "table" then
         -- sama seperti game: layer 1 = fg, 2 = bg
@@ -3397,7 +3399,8 @@ end
 function Drops.remoteTick(list, s)
     if Clear.Running and Clear.TargetId and not State.WorldBreakCollect then return end
     local offs = farmOffsets()
-    local farmArea = (State.AutoCollect or State.Override ~= nil) and next(offs) ~= nil
+    -- fase panen/tanam Auto Rotasi: auto collect untuk break (tile break) mati, tinggal collect panen
+    local farmArea = (State.AutoCollect or State.Override ~= nil) and next(offs) ~= nil and not Pabrik.Harvesting
     local nearArea = (Clear.Running and (Clear.TargetId and State.WorldBreakCollect or not Clear.TargetId and Clear.Collect)) or (Farmer.Running and Farmer.Collect)
         or Pabrik.Running or Build.Running or Splice.Roaming
     if not farmArea and not nearArea then return end
@@ -3499,7 +3502,7 @@ task.spawn(function()
         local ok, err = pcall(collectTick)
         if not ok and os.clock() - (Drops.LastErrorAt or -10) >= 10 then
             Drops.LastErrorAt = os.clock()
-            warn("[n4th] Collect: " .. tostring(err))
+            warn("[BoyS] Collect: " .. tostring(err))
         end
         task.wait(0.05)
     end
@@ -3706,7 +3709,7 @@ function Session.tryMovementMenu(menu)
     if type(original) ~= "function" then return false end
     local ok, reason = pcall(rawset, menu, "isDown", isDownWrapper)
     if not ok then
-        warn("[n4th] Kontrol gerak tidak bisa dihubungkan: " .. tostring(reason))
+        warn("[BoyS] Kontrol gerak tidak bisa dihubungkan: " .. tostring(reason))
         return false
     end
     local previous = Session.MovementMenu
@@ -5855,7 +5858,7 @@ local function startClear(targetId)
     task.spawn(function()
         local ok, e = pcall(clearLoop)
         if not ok then
-            warn("[n4th] Auto Clear error: " .. tostring(e))
+            warn("[BoyS] Auto Clear error: " .. tostring(e))
             if Clear.Running then stopClear("Error: " .. tostring(e)) end
         end
     end)
@@ -6537,7 +6540,22 @@ local function spanCenter(span)
 end
 
 -- Langkah panen rotasi: berdiri di tengah, pukul panen 2 kiri + tengah + 2 kanan, lalu langsung tanam & collect
+-- Drop floating yang diambil: hanya block yang kita panen (block dari seed pohon yang
+-- dipanen) atau block yang kita break (block pabrik). Seed & item lain dibiarkan.
+local function ownBlockDrop(d)
+    if type(d) ~= "table" then return false end
+    local it = ItemDB[d.id]
+    if not it or it.kind == "seed" then return false end
+    if d.id == Pabrik.BlockId then return true end
+    for sid in pairs(Pabrik.Got) do
+        if d.id == sid - 1 then return true end
+    end
+    return false
+end
+
 local function spanFieldStep(s)
+    -- Ada block floating hasil panen / break kita di sekitar: ambil dulu (seed & item lain dibiarkan)
+    if Move.fetchDrops(FC.run, 15, ownBlockDrop, 12) > 0 then return "work" end
     local cx, row, set, tiles = spanCenter(FC.span)
     if not cx then return "idle" end
     FC.spanSet, FC.spanX, FC.spanRow = set, cx, row
@@ -6709,7 +6727,7 @@ local function startFarmer()
     task.spawn(function()
         local ok, e = pcall(farmerLoop)
         if not ok then
-            warn("[n4th] Farmer error: " .. tostring(e))
+            warn("[BoyS] Farmer error: " .. tostring(e))
             if Farmer.Running then stopFarmer("Error: " .. tostring(e)) end
         end
     end)
@@ -6912,7 +6930,7 @@ local function startSpliceRoam()
     task.spawn(function()
         local ok, e = pcall(spliceRoamLoop, id)
         if not ok then
-            warn("[n4th] Splice error: " .. tostring(e))
+            warn("[BoyS] Splice error: " .. tostring(e))
             if Splice.Running and Splice.stop then Splice.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -7211,7 +7229,10 @@ local function pabrikCfg(o, harvest, plant)
         topDown = true,
         collect = true,
         status = function(t) Pabrik.Status = t end,
-        onHarvest = function() Pabrik.Harvested += 1 end,
+        onHarvest = function(id)
+            Pabrik.Harvested += 1
+            if id then Pabrik.Got[id] = true end
+        end,
         onPlant = function() Pabrik.Planted += 1 end,
     }
 end
@@ -7257,7 +7278,7 @@ local function pabrikBreak(o)
     end)
     Pabrik.Status = "Break " .. itemName(o.block) .. " di posisi pabrik"
     local ok, e = pcall(farmLoop, id)
-    if not ok then warn("[n4th] Pabrik break error: " .. tostring(e)) end
+    if not ok then warn("[BoyS] Pabrik break error: " .. tostring(e)) end
     State.Running = false
     State.Override = nil
     State.Quiet = false
@@ -7816,7 +7837,7 @@ do
                 if not ok then
                     AutoDrop.Status = tostring(err)
                     AutoDrop.NextTry = os.clock() + 10
-                    warn("[n4th] Auto Drop: " .. tostring(err))
+                    warn("[BoyS] Auto Drop: " .. tostring(err))
                 end
             end
         end
@@ -7891,6 +7912,7 @@ local function pabrikStep(o)
     local seeds, blocks = invCount(o.seed), invCount(o.block)
     o.phase = o.phase or "panen"
     Pabrik.Phase = PHASE_NAME[o.phase]
+    Pabrik.Harvesting = (o.phase == "panen" or o.phase == "tanam") -- mau panen: collect break off
     -- drop seed lebihan (kapan saja)
     if o.drop and Pabrik.Drop and seeds >= Pabrik.DropAt and seeds > Pabrik.Keep
         and os.clock() >= (Pabrik.DropOffUntil or 0) then
@@ -8018,6 +8040,7 @@ end
 
 function Pabrik.stop(reason)
     Pabrik.Running = false
+    Pabrik.Harvesting = false
     Pabrik.Traveling = false
     if State.Override then State.Running = false end
     autoEnd()
@@ -8074,7 +8097,7 @@ function Pabrik.start()
     task.spawn(function()
         local ok, e = pcall(pabrikLoop, id)
         if not ok then
-            warn("[n4th] Pabrik error: " .. tostring(e))
+            warn("[BoyS] Pabrik error: " .. tostring(e))
             if Pabrik.Running then Pabrik.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -8777,7 +8800,7 @@ function Vend.start()
     task.spawn(function()
         local ok, e = pcall(vendLoop, id)
         if not ok then
-            warn("[n4th] Vending error: " .. tostring(e))
+            warn("[BoyS] Vending error: " .. tostring(e))
             if Vend.Running then Vend.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -9554,7 +9577,7 @@ function Build.breakSession(o)
     end)
     Build.Status = ("Break %s di posisi break lahan (%d,%d)"):format(itemName(o.block), Build.BreakX, Build.BreakY)
     local ok, e = pcall(farmLoop, id)
-    if not ok then warn("[n4th] Break lahan error: " .. tostring(e)) end
+    if not ok then warn("[BoyS] Break lahan error: " .. tostring(e)) end
     State.Running = false
     State.Override = nil
     State.Quiet = false
@@ -10116,7 +10139,7 @@ function Build.start(dirtMode)
     task.spawn(function()
         local ok, e = pcall(buildLoop, id, dirt)
         if not ok then
-            warn("[n4th] Bangun Lahan error: " .. tostring(e))
+            warn("[BoyS] Bangun Lahan error: " .. tostring(e))
             if Build.Running and Build.RunId == id then Build.stop("Error: " .. tostring(e)) end
         end
     end)
@@ -10235,7 +10258,7 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------------
--- WATERMARK NAMA n4th (hanya di layar sendiri)
+-- WATERMARK NAMA BoyS (hanya di layar sendiri)
 ---------------------------------------------------------------------
 -- Nama asli (huruf gambar "BitmapText") disembunyikan, diganti teks beranimasi:
 -- warna gradient mengalir + denyut halus. Pemain lain tetap melihat nama asli.
@@ -10365,7 +10388,7 @@ end
 
 local function makeLabel(holder, size, isTag)
     local lb = Instance.new("TextLabel")
-    lb.Name = "n4thName"
+    lb.Name = "BoySName"
     lb.BackgroundTransparency = 1
     lb.Font = NAME_FONT
     lb.TextSize = size
@@ -10520,7 +10543,7 @@ local GRID_RADIUS = 2
 local CELL = 38
 local GAP = 4
 
-local GridGui = newScreenGui("n4thGrid")
+local GridGui = newScreenGui("BoySGrid")
 UI.GridGui = GridGui
 
 local side = GRID_RADIUS * 2 + 1
@@ -10772,7 +10795,7 @@ task.spawn(function()
 end)
 
 -- Tombol ▲/▼ untuk Fly (muncul saat Fly aktif)
-local FlyPad = newScreenGui("n4thFlyPad")
+local FlyPad = newScreenGui("BoySFlyPad")
 UI.FlyPad = FlyPad
 
 local function flyButton(text, yOffset, onHold)
@@ -10838,7 +10861,7 @@ do
     }) do
         theme[key] = color
     end
-    theme.Name = "n4th Red"
+    theme.Name = "BoyS Red"
     WindUI:AddTheme(theme)
     WindUI:SetTheme(theme.Name)
     pcall(function() WindUI:SetFont(Font.fromEnum(Enum.Font.Roboto).Family) end)
@@ -10862,7 +10885,7 @@ do (function()
     end
     local ok = pcall(function()
         WindUI:Popup({
-            Title = "n4th",
+            Title = "BoyS",
             Icon = "languages",
             Content = "Pilih bahasa menu\nChoose menu language",
             Buttons = {
@@ -10882,13 +10905,13 @@ end)() end
 
 Session.InitStep = "membuat menu WindUI"
 local Window = I18N.wrap(WindUI:CreateWindow({
-    Title = "n4th",
+    Title = "BoyS",
     Icon = "sprout",
     Author = "v2.0",
-    Folder = "n4thOpus",
+    Folder = "BoySOpus",
     Size = UDim2.fromOffset(668, 444),
     MinSize = Vector2.new(485, 330),
-    Theme = "n4th Red",
+    Theme = "BoyS Red",
     Transparent = false,
     SideBarWidth = 166,
     ElementsRadius = 10,
@@ -10899,7 +10922,7 @@ UI.Window = Window
 -- Cadangan PC: kalau tombol susah dicari, tekan Insert.
 pcall(function()
     Window:EditOpenButton({
-        Title = "n4th v2.0",
+        Title = "BoyS v2.0",
         Icon = "sprout",
         Color = ColorSequence.new(UI.Palette.Accent, UI.Palette.Action),
         Draggable = true,
@@ -10910,7 +10933,7 @@ end)
 -- Kalau 1 elemen error, tab lain tetap dibuat
 local function safe(fn)
     local ok, err = pcall(fn)
-    if not ok then warn("[n4th] UI error: " .. tostring(err)) end
+    if not ok then warn("[BoyS] UI error: " .. tostring(err)) end
 end
 
 -- Kunci tab dipakai oleh refresh inventori. Judul menu bisa diterjemahkan.
@@ -11188,7 +11211,7 @@ do (function()
             UI.WorldBreakRefreshing = false
             if not refreshed then error(message, 0) end
         end)
-        if ok then signature = current else warn("[n4th] Daftar block world: " .. tostring(err)) end
+        if ok then signature = current else warn("[BoyS] Daftar block world: " .. tostring(err)) end
     end
     safe(function()
         controls:Button({ Title = "Refresh block world", Desc = "Baca ulang jenis dan jumlah block dari world aktif.",
@@ -11841,7 +11864,7 @@ do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
         Guard.BackText = nil
         task.spawn(function()
             local ok, err = pcall(resumeAll, saved, token)
-            if not ok then warn("[n4th] Penjaga lanjut error: " .. tostring(err)) end
+            if not ok then warn("[BoyS] Penjaga lanjut error: " .. tostring(err)) end
             if Guard.Token == token and Guard.Mode == "back" then
                 Guard.Mode, Guard.Saved, Guard.BackText = "idle", nil, nil
             end
@@ -12076,7 +12099,7 @@ do (function() -- fungsi sendiri: variabel di dalam tidak ikut batas 200 local
         while alive() do
             local here = (Guard.Mode ~= "away" and Guard.Mode ~= "out") and playersHere() or {}
             local ok, err = pcall(Guard.tick, here)
-            if not ok then warn("[n4th] Penjaga error: " .. tostring(err)) end
+            if not ok then warn("[BoyS] Penjaga error: " .. tostring(err)) end
             Guard.updateStatus(here)
             task.wait(0.5)
         end
@@ -13683,7 +13706,7 @@ do (function()
             return Vend.labels(m)
         end)
         if not ok then
-            warn("[n4th] daftar item vending error: " .. tostring(labels))
+            warn("[BoyS] daftar item vending error: " .. tostring(labels))
             return 0, "error: " .. tostring(labels)
         end
         local info = ("tas %d | drop %d | vending %d"):format(st.inv, st.drop, st.vend)
@@ -13696,7 +13719,7 @@ do (function()
             end)
             if not okR then
                 Vend.ItemSig = nil
-                warn("[n4th] refresh dropdown item vending gagal: " .. tostring(errR))
+                warn("[BoyS] refresh dropdown item vending gagal: " .. tostring(errR))
                 notify("Vending", "Daftar item gagal dimuat: " .. tostring(errR), 6)
                 return
             end
@@ -13994,7 +14017,7 @@ local Rejoin = {
     World = true,       -- masuk lagi kalau terlempar dari world
     Server = true,      -- rejoin kalau disconnect dari server
     DelaySec = 5,
-    ScriptUrl = "https://raw.githubusercontent.com/ZennJxD/n4th/refs/heads/main/n4th",
+    ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/cit.lua",
     Keep = false,       -- selalu kembali ke world tujuan kalau berada di luar world
     Target = "",        -- world tujuan (kosong = world terakhir)
     LastWorld = "",     -- world terakhir yang dimasuki
@@ -14010,7 +14033,7 @@ do (function()
     local TeleportService = game:GetService("TeleportService")
     local GuiService = game:GetService("GuiService")
     local canFile = type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
-    local PENDING = "n4thOpus/rejoin_" .. tostring(LocalPlayer.UserId) .. ".json"
+    local PENDING = "BoySOpus/rejoin_" .. tostring(LocalPlayer.UserId) .. ".json"
 
     -- catat aktivitas selagi masih jalan
     task.spawn(function()
@@ -14285,11 +14308,11 @@ do
 
     -- Hanya menyimpan antrean milik Finder. Data ini tidak memeriksa world dari luar.
     local teleport = game:GetService("TeleportService")
-    local pendingKey = "n4th.finder.teleport.v1"
+    local pendingKey = "BoyS.finder.teleport.v1"
     local bootSource = [=[
 local globals = (getgenv and getgenv()) or _G
-if not globals.__n4thFinderBooting then
-    globals.__n4thFinderBooting = true
+if not globals.__BoySFinderBooting then
+    globals.__BoySFinderBooting = true
     task.spawn(function()
         if not game:IsLoaded() then game.Loaded:Wait() end
         local players = game:GetService("Players")
@@ -14297,18 +14320,18 @@ if not globals.__n4thFinderBooting then
         while not players.LocalPlayer and os.clock() < deadline do task.wait(0.1) end
         local player = players.LocalPlayer
         local ts = game:GetService("TeleportService")
-        local ok, data = pcall(ts.GetTeleportSetting, ts, "n4th.finder.teleport.v1")
+        local ok, data = pcall(ts.GetTeleportSetting, ts, "BoyS.finder.teleport.v1")
         local ran, err = true, nil
         if ok and type(data) == "table" and data.Active == true and data.Schema == 1
             and data.Universe == game.GameId and data.Job ~= game.JobId
             and player and data.User == player.UserId and type(data.At) == "number"
             and os.time() - data.At >= 0 and os.time() - data.At < 600 then
             ran, err = pcall(function()
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/ZennJxD/n4th/refs/heads/main/n4th"))()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/cit.lua"))()
             end)
         end
-        globals.__n4thFinderBooting = nil
-        if not ran then warn("[n4th] Gagal lanjut setelah teleport: " .. tostring(err)) end
+        globals.__BoySFinderBooting = nil
+        if not ran then warn("[BoyS] Gagal lanjut setelah teleport: " .. tostring(err)) end
     end)
 end
 ]=]
@@ -14339,7 +14362,7 @@ end
         if not saved then return false, "Gagal menyimpan antrean teleport: " .. tostring(reason) end
         if WorldFinder.Queued then return true end
         local queue = queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
-        if type(queue) ~= "function" then return false, "Executor tidak mendukung auto-execute setelah teleport. Execute n4th lagi untuk lanjut." end
+        if type(queue) ~= "function" then return false, "Executor tidak mendukung auto-execute setelah teleport. Execute BoyS lagi untuk lanjut." end
         local ok, err = pcall(queue, bootSource)
         WorldFinder.Queued = ok
         return ok, not ok and ("Auto-execute gagal disiapkan: " .. tostring(err)) or nil
@@ -14847,7 +14870,7 @@ do (function()
                     notify("World Finder", "Aktifkan notifikasi dan isi URL webhook dulu", 4)
                     return
                 end
-                Hook.send("finder", "World Finder siap mengirim hasil hunting dari n4th")
+                Hook.send("finder", "World Finder siap mengirim hasil hunting dari BoyS")
                 notify("World Finder", "Pesan tes masuk antrian", 3)
             end,
         })
@@ -14992,7 +15015,7 @@ function Session.refreshGameRefs(show)
     if not alive() then return false end
     findRefs()
     if not alive() then return false end
-    if Refs.ScanError then warn("[n4th] " .. Refs.ScanError) end
+    if Refs.ScanError then warn("[BoyS] " .. Refs.ScanError) end
     local itemsReady = Session.resolveItems()
     if not alive() then return false end
     Session.bindMovement(true)
@@ -15009,7 +15032,7 @@ function Session.refreshGameRefs(show)
     if Misc.InfJump then hookJammer() end
     pcall(function() UI.RefInfo:SetDesc(refsText()) end)
     updateStatus()
-    print("[n4th] " .. Session.Build .. " | scanned=" .. tostring(Refs.ScanCount)
+    print("[BoyS] " .. Session.Build .. " | scanned=" .. tostring(Refs.ScanCount)
         .. " | callbacks=" .. tostring(Refs.ConnectionCount or 0) .. " | " .. refsText())
     if show then
         local message = refsText()
@@ -15051,7 +15074,7 @@ local function reconnect(show)
         Session.scheduleItemRetry()
         return connected
     end
-    warn("[n4th] Koneksi game: " .. tostring(connected))
+    warn("[BoyS] Koneksi game: " .. tostring(connected))
     pcall(function() UI.RefInfo:SetDesc(refsText()) end)
     if show then notify(show, refsText(), 5) end
     return false
@@ -15351,7 +15374,7 @@ do (function()
                 end
                 local was = Hook.On
                 Hook.On = true
-                Hook.send("test", "Tes notifikasi dari n4th")
+                Hook.send("test", "Tes notifikasi dari BoyS")
                 Hook.On = was
                 notify("Discord", "Pesan tes masuk antrian", 3)
             end,
@@ -15398,7 +15421,7 @@ do
     task.spawn(function()
         while alive() do
             local ok, err = pcall(UI.runJobs)
-            if not ok then warn("[n4th] UI runner: " .. tostring(err)) end
+            if not ok then warn("[BoyS] UI runner: " .. tostring(err)) end
             task.wait(0.1)
         end
     end)
@@ -15408,7 +15431,7 @@ task.spawn(function()
     local readyDeadline = os.clock() + 12
     while alive() and LocalPlayer:GetAttribute("GameReady") ~= true and os.clock() < readyDeadline do task.wait(0.25) end
     if not alive() then return end
-    local connected = reconnect("n4th v2.0")
+    local connected = reconnect("BoyS v2.0")
     -- Input dapat tersambung belakangan pada executor yang mulai sebelum client game selesai.
     if connected and not Refs.Punch then
         task.spawn(function()
@@ -15421,12 +15444,12 @@ task.spawn(function()
                 if Refs.Inv then pcall(watchInventory) end
                 pcall(function() UI.RefInfo:SetDesc(refsText()) end)
                 if Refs.Punch then
-                    print("[n4th] Fungsi pukul ditemukan setelah input game siap.")
+                    print("[BoyS] Fungsi pukul ditemukan setelah input game siap.")
                     return
                 end
             end
             if alive() and not Refs.Punch then
-                warn("[n4th] Pukul belum ditemukan setelah mencoba GC dan koneksi input. Jalankan n4th-diagnose.lua untuk laporan API executor.")
+                warn("[BoyS] Pukul belum ditemukan setelah mencoba GC dan koneksi input. Jalankan n4th-diagnose.lua untuk laporan API executor.")
             end
         end)
     end
@@ -15536,4 +15559,4 @@ end
 
 Session.InitStep = "siap"
 Session.Ready = true
-print("[n4th] Menu siap (build " .. Session.Build .. ")")
+print("[BoyS] Menu siap (build " .. Session.Build .. ")")
