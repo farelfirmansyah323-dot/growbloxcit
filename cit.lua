@@ -1018,7 +1018,7 @@ local Pabrik = {
     Harvested = 0,
     Planted = 0,
     Dropped = 0,
-    Reach = 5,            -- jangkauan panen Auto Rotasi dari pusat karakter (tile)
+    HarvestWidth = 5,     -- total 5 tile horizontal: 2 kiri, tengah, 2 kanan
     Skip = {},
     Status = "-",
     Traveling = false,
@@ -6221,9 +6221,11 @@ end
 local function farmerWorkInReach(s)
     local w = Refs.World
     local W = w.w
-    -- Auto Rotasi: lima tile berada satu baris di atas tile pijakan karakter.
+    -- Auto Rotasi memakai radius panen tersendiri dari pusat karakter.
     local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.08)
     local cx, cy = s.x, s.y - 0.475
+    local centerX = floor(cx)
+    local halfWidth = math.floor(((FC.harvestWidth or 0) - 1) / 2)
     local now = os.clock()
     local st = workspace:GetServerTimeNow()
     local doPlant = FC.plant and fcSeeds() > 0
@@ -6231,8 +6233,7 @@ local function farmerWorkInReach(s)
     local bx, by = floor(s.x), floor(cy)
     for ty = math.max(0, floor(cy - R - 0.5)), math.min(floor(cy + R + 0.5), w.h - 1) do
         for tx = math.max(0, floor(cx - R - 0.5)), math.min(floor(cx + R + 0.5), W - 1) do
-            local inFive = not FC.centerFive or (ty == by - 1 and math.abs(tx - bx) <= 2)
-            if inFive and stateReaches(s, tx, ty, R) then
+            if (not FC.harvestWidth or abs(tx - centerX) <= halfWidth) and stateReaches(s, tx, ty, R) then
                 local idx = ty * W + tx
                 if not skipped(FC.skip, idx, now) then
                     local id = fgIdAt(tx, ty)
@@ -6285,12 +6286,7 @@ local function farmerWorkInReach(s)
         task.wait(0.25) -- drop panen muncul sedikit terlambat
         if not FC.run() or not alive() then return done end
         -- susuri baris ini sampai drop terjauh (terambil sambil lewat, tanpa berhenti)
-        if Move.fetchDrops(FC.run, 8, function(d) return abs(d.y - cy) <= 1.6 end, 10) > 0 then
-            if FC.centerFive and FC.centerX ~= nil and FC.centerY ~= nil and FC.run() then
-                walkTo(FC.centerX, FC.centerY, 20)
-            end
-            return done
-        end
+        if Move.fetchDrops(FC.run, 8, function(d) return abs(d.y - cy) <= 1.6 end, 10) > 0 then return done end
     end
     for _, t in ipairs(plant) do
         if not FC.run() or not alive() then return done end
@@ -6324,9 +6320,9 @@ local function farmerScan(px, py, maxN, filter)
         local frow, below = w.fg[y], w.fg[y + 1]
         for x = 0, W - 1 do
             local id = frow and frow[x] or 0
-            local inFive = not FC.centerFive or (y == py - 1 and math.abs(x - px) <= 2)
-            if id ~= 0 and inFive then
-                if fcHarvestOk(x, y) and (not FC.only or id == FC.only) then
+            if id ~= 0 then
+                if (not FC.harvestWidth or abs(x - px) <= math.floor((FC.harvestWidth - 1) / 2))
+                    and fcHarvestOk(x, y) and (not FC.only or id == FC.only) then
                     local ra = treeReadyAt(x, y, id)
                     if ra and st >= ra then
                         local idx = y * W + x
@@ -6353,7 +6349,7 @@ local function farmerScan(px, py, maxN, filter)
                         nextReady = ra - st
                     end
                 end
-            elseif id == 0 and doPlant and inFive then
+            elseif doPlant and (not FC.harvestWidth or abs(x - px) <= math.floor((FC.harvestWidth - 1) / 2)) then
                 local b = below and below[x] or 0
                 local idx = y * W + x
                 if b ~= 0 and fcPlantOk(idx) and not skipped(FC.skip, idx, now) then
@@ -6477,21 +6473,8 @@ local function fieldStep()
     end
     Move.AirAt = nil
     releaseInput()
-    -- Auto Rotasi selalu berdiri di tile pijakan tengah; lima tile kerja ada tepat di atasnya.
-    if FC.centerFive and FC.centerX ~= nil and FC.centerY ~= nil then
-        local hx, hy = startNode(s)
-        if hx ~= FC.centerX or hy ~= FC.centerY then
-            FC.status(("Kembali ke tile tengah (%d,%d)"):format(FC.centerX, FC.centerY))
-            if not walkTo(FC.centerX, FC.centerY, 20) then
-                task.wait(0.25)
-                return "wait"
-            end
-            s = playerState()
-            if not s then return "wait" end
-        end
-    end
     if farmerWorkInReach(s) > 0 then return "work" end
-    -- Radius pencarian target panen sama dengan radius kerja di sekitar karakter.
+    -- Jangkauan horizontal Auto Rotasi dibatasi 5 kolom: 2 kiri, tengah, 2 kanan.
     local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.35)
     local useBlock = scaffoldId() ~= nil
     local sx, sy = startNode(s)
@@ -7113,11 +7096,9 @@ local function pabrikCfg(o, harvest, plant)
     end
     return {
         run = o.live,
-        centerFive = true, -- Auto Rotasi: 5 tile horizontal, karakter di tile tengah
-        centerX = Pabrik.CenterX,
-        centerY = Pabrik.CenterY,
         harvest = harvest,
-        harvestReach = harvest and (Pabrik.Reach or 5) or nil,
+        harvestWidth = Pabrik.HarvestWidth or 5,
+        harvestReach = harvest and 2.5 or nil,
         plant = plant and invCount(o.seed) > 0,
         seed = o.seed,
         skip = Pabrik.Skip,
@@ -7980,12 +7961,6 @@ function Pabrik.start()
     if not Refs.Trees then findTreeRefs() end
     Pabrik.BlockId = block
     Pabrik.Home = Guard.worldName()
-    local startState = playerState()
-    if startState then
-        Pabrik.CenterX, Pabrik.CenterY = startNode(startState)
-    else
-        Pabrik.CenterX, Pabrik.CenterY = nil, nil
-    end
     table.clear(Pabrik.Skip)
     table.clear(Pabrik.Row)
     table.clear(BadEdge)
