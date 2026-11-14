@@ -1011,6 +1011,7 @@ local Pabrik = {
     Tiles = {},          -- tile break, relatif ke posisi break ("dx,dy")
     BreakX = -1, BreakY = -1,
     BreakSec = 60,       -- lama 1 sesi break sebelum cek pohon lagi
+    BreakAt = 200,       -- break baru dimulai kalau block sudah sebanyak ini (lanjut sampai block habis)
     Drop = true,
     Keep = 50,           -- seed yang disisakan untuk ditanam lagi
     DropAt = 200,        -- drop kalau seed sudah sebanyak ini
@@ -2208,7 +2209,7 @@ Config.add("Vending", Vend, { "Mode", "Point", "Items", "DropX", "DropY" })
 Config.add("AutoDrop", AutoDrop, { "Items", "World", "X", "Y", "Facing" })
 Config.add("WorldFinder", WorldFinder, { "Mode", "Custom", "Manual", "Limit", "DelaySec", "WebhookEach" })
 Config.add("Pabrik", Pabrik, {
-    "SeedId", "WholeWorld", "SideTiles", "CollectDist", "Tiles", "BreakX", "BreakY",
+    "SeedId", "WholeWorld", "SideTiles", "CollectDist", "BreakAt", "Tiles", "BreakX", "BreakY",
     "Drop", "Keep", "DropAt", "DropWorld", "DropX", "DropY",
 })
 Config.add("Bahasa", I18N, { "Saved", "Ask", "Chosen" })
@@ -7913,6 +7914,9 @@ local function pabrikStep(o)
     o.phase = o.phase or "panen"
     Pabrik.Phase = PHASE_NAME[o.phase]
     Pabrik.Harvesting = (o.phase == "panen" or o.phase == "tanam") -- mau panen: collect break off
+    -- Break hanya dimulai kalau block sudah BreakAt (200); sekali mulai lanjut sampai block habis
+    local T = math.clamp(Pabrik.BreakAt or 200, 1, 200)
+    if blocks >= T then o.breaking = true elseif blocks <= 0 then o.breaking = false end
     -- drop seed lebihan (kapan saja)
     if o.drop and Pabrik.Drop and seeds >= Pabrik.DropAt and seeds > Pabrik.Keep
         and os.clock() >= (Pabrik.DropOffUntil or 0) then
@@ -7921,8 +7925,8 @@ local function pabrikStep(o)
     end
 
     if o.phase == "panen" then
-        -- 1x panen bisa kena beberapa pohon, jadi sisakan ruang ~20 item
-        if blocks >= CAP - 20 or seeds >= CAP - 20 then
+        -- terus panen sampai block cukup untuk break (BreakAt); seed disisakan ruang ~20 item
+        if blocks >= T or seeds >= CAP - 20 then
             o.phase = "tanam"
             return "next"
         end
@@ -7951,7 +7955,10 @@ local function pabrikStep(o)
     if o.phase == "break" then
         local want
         if o.breakMode == "always" then
-            want = blocks > 0
+            -- tidak ada seed & tidak ada pohon: break dulu supaya dapat seed (kalau tidak, macet)
+            local nb, nxtb = readyTreeCount(o.whole)
+            local bootstrap = seeds == 0 and nb == 0 and nxtb == nil
+            want = blocks > 0 and (o.breaking or bootstrap)
         else -- mode produksi: break hanya untuk dapat seed awal
             local _, nxt = readyTreeCount(o.whole)
             want = blocks > 0 and seeds < BOOT_SEEDS and nxt == nil
@@ -7971,7 +7978,8 @@ local function pabrikStep(o)
         o.phase = "panen"
         return "next"
     end
-    if o.breakMode == "always" and blocks > 0 and breakReady() then
+    if o.breakMode == "always" and blocks > 0 and (o.breaking or (seeds == 0 and n == 0 and nxt == nil))
+        and breakReady() then
         o.phase = "break"
         return "next"
     end
@@ -13906,6 +13914,13 @@ do (function()
         Desc = "2 = berdiri di tengah, pukul panen 2 tile kiri + tengah + 2 tile kanan (5 tile)",
         Min = 1, Max = 4, Step = 1, Default = Pabrik.SideTiles,
         Callback = function(v) Pabrik.SideTiles = math.floor(v) end,
+    })
+
+    addNumber(pBreak, {
+        Title = "Break kalau block sudah",
+        Desc = "Panen terus sampai block segini, baru break (sampai block habis)",
+        Min = 1, Max = 200, Step = 1, Default = Pabrik.BreakAt,
+        Callback = function(v) Pabrik.BreakAt = math.floor(v) end,
     })
 
     addNumber(pBreak, {
