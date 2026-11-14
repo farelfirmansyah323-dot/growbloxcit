@@ -1018,6 +1018,7 @@ local Pabrik = {
     Harvested = 0,
     Planted = 0,
     Dropped = 0,
+    Reach = 5,            -- jangkauan panen Auto Rotasi dari pusat karakter (tile)
     Skip = {},
     Status = "-",
     Traveling = false,
@@ -6220,7 +6221,8 @@ end
 local function farmerWorkInReach(s)
     local w = Refs.World
     local W = w.w
-    local R = FC.plant and FC.placeReach or farmReach() - 0.08
+    -- Auto Rotasi memakai radius panen tersendiri dari pusat karakter.
+    local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.08)
     local cx, cy = s.x, s.y - 0.475
     local now = os.clock()
     local st = workspace:GetServerTimeNow()
@@ -6469,7 +6471,8 @@ local function fieldStep()
     Move.AirAt = nil
     releaseInput()
     if farmerWorkInReach(s) > 0 then return "work" end
-    local R = FC.plant and FC.placeReach or farmReach() - 0.35
+    -- Radius pencarian target panen sama dengan radius kerja di sekitar karakter.
+    local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.35)
     local useBlock = scaffoldId() ~= nil
     local sx, sy = startNode(s)
     local px, py = floor(s.x), floor(s.y - 0.475)
@@ -7091,6 +7094,7 @@ local function pabrikCfg(o, harvest, plant)
     return {
         run = o.live,
         harvest = harvest,
+        harvestReach = harvest and (Pabrik.Reach or 5) or nil,
         plant = plant and invCount(o.seed) > 0,
         seed = o.seed,
         skip = Pabrik.Skip,
