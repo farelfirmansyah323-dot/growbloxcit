@@ -14090,6 +14090,59 @@ do (function()
         end
     end)
 
+    -- Masuk world lewat chat "/warp NAMA" (cara paling andal), cadangan: menu game
+    local function sendWarp(world)
+        local ch = worldChannel()
+        if not ch then
+            local folder = TextChatService:FindFirstChild("WorldChannels")
+            if folder then
+                for _, c in ipairs(folder:GetChildren()) do
+                    if c:IsA("TextChannel") then ch = c break end
+                end
+            end
+        end
+        if not ch then
+            local chs = TextChatService:FindFirstChild("TextChannels")
+            if chs then
+                ch = chs:FindFirstChild("RBXGeneral")
+                if not ch then
+                    for _, c in ipairs(chs:GetChildren()) do
+                        if c:IsA("TextChannel") then ch = c break end
+                    end
+                end
+            end
+        end
+        if not ch then return false, "channel chat tidak ada" end
+        local ok, err = pcall(ch.SendAsync, ch, "/warp " .. world)
+        if not ok then return false, tostring(err) end
+        return true
+    end
+
+    local function warpTo(world)
+        local w = Refs.World
+        local oldFg = w and rawget(w, "fg")
+        local hadState = playerState() ~= nil
+        local ok, err = sendWarp(world)
+        if not ok then return false, err end
+        Rejoin.Status = "Kirim /warp " .. world .. "..."
+        local t0 = os.clock()
+        while alive() and os.clock() - t0 < 10 do
+            local w2 = Refs.World
+            if w2 and rawget(w2, "fg") ~= oldFg then return true end
+            if not hadState and playerState() and Guard.worldName() == world then return true end
+            task.wait(0.25)
+        end
+        return false, "/warp tidak memindahkan world"
+    end
+
+    local function enterSmart(world)
+        local ok, err = warpTo(world)
+        if ok then return true end
+        local ok2, err2 = Guard.enterWorld(world)
+        if ok2 then return true end
+        return false, tostring(err2 or err)
+    end
+
     local function resume(saved, reason)
         Guard.afterEnter()
         Rejoin.Count += 1
@@ -14114,7 +14167,7 @@ do (function()
             task.wait(Rejoin.DelaySec + 1.5) -- tunggu animasi pintu selesai
             for try = 1, 3 do
                 if not (alive() and Rejoin.On) then break end
-                local ok, err = Guard.enterWorld(saved.world)
+                local ok, err = enterSmart(saved.world)
                 if ok then
                     task.wait(1.5)
                     resume(saved, "Masuk lagi")
@@ -14167,7 +14220,7 @@ do (function()
     local function enterAndResume(world, saved, reason)
         for try = 1, 3 do
             if not alive() then return false end
-            local ok, err = Guard.enterWorld(world)
+            local ok, err = enterSmart(world)
             if ok then
                 task.wait(1.5)
                 if saved and saved.world == world then
@@ -14365,7 +14418,7 @@ do (function()
             if not Refs.World then pcall(reconnectFn) end
             if Refs.World and not tried and os.clock() - t0 > 12 then
                 tried = true
-                Guard.enterWorld(saved.world)
+                enterSmart(saved.world)
             end
             task.wait(2)
         end
