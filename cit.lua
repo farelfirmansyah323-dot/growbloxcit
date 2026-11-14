@@ -6221,7 +6221,7 @@ end
 local function farmerWorkInReach(s)
     local w = Refs.World
     local W = w.w
-    -- Auto Rotasi memakai radius panen tersendiri dari pusat karakter.
+    -- Auto Rotasi: lima tile berada satu baris di atas tile pijakan karakter.
     local R = FC.harvestReach or (FC.plant and FC.placeReach or farmReach() - 0.08)
     local cx, cy = s.x, s.y - 0.475
     local now = os.clock()
@@ -6231,7 +6231,7 @@ local function farmerWorkInReach(s)
     local bx, by = floor(s.x), floor(cy)
     for ty = math.max(0, floor(cy - R - 0.5)), math.min(floor(cy + R + 0.5), w.h - 1) do
         for tx = math.max(0, floor(cx - R - 0.5)), math.min(floor(cx + R + 0.5), W - 1) do
-            local inFive = not FC.centerFive or (ty == by and math.abs(tx - bx) <= 2)
+            local inFive = not FC.centerFive or (ty == by - 1 and math.abs(tx - bx) <= 2)
             if inFive and stateReaches(s, tx, ty, R) then
                 local idx = ty * W + tx
                 if not skipped(FC.skip, idx, now) then
@@ -6324,7 +6324,7 @@ local function farmerScan(px, py, maxN, filter)
         local frow, below = w.fg[y], w.fg[y + 1]
         for x = 0, W - 1 do
             local id = frow and frow[x] or 0
-            local inFive = not FC.centerFive or (y == py and math.abs(x - px) <= 2)
+            local inFive = not FC.centerFive or (y == py - 1 and math.abs(x - px) <= 2)
             if id ~= 0 and inFive then
                 if fcHarvestOk(x, y) and (not FC.only or id == FC.only) then
                     local ra = treeReadyAt(x, y, id)
@@ -6477,7 +6477,7 @@ local function fieldStep()
     end
     Move.AirAt = nil
     releaseInput()
-    -- Auto Rotasi selalu bekerja dari tile tengah (tile ke-3 dari 5 tile).
+    -- Auto Rotasi selalu berdiri di tile pijakan tengah; lima tile kerja ada tepat di atasnya.
     if FC.centerFive and FC.centerX ~= nil and FC.centerY ~= nil then
         local hx, hy = startNode(s)
         if hx ~= FC.centerX or hy ~= FC.centerY then
