@@ -6263,6 +6263,20 @@ local function farmerWorkInReach(s)
     table.sort(harvest, byX)
     table.sort(plant, byX)
 
+    -- Auto Rotasi: selesaikan satu baris panen terlebih dahulu.
+    -- Ambil semua pohon yang sudah siap di baris prioritas (kiri ke kanan).
+    -- Jika baris atas belum punya pohon siap, baris berikutnya yang siap akan dipilih.
+    if FC.topDown and #harvest > 0 then
+        local priorityY = harvest[1].y
+        local rowOnly = {}
+        for _, t in ipairs(harvest) do
+            if t.y == priorityY then
+                rowOnly[#rowOnly + 1] = t
+            end
+        end
+        harvest = rowOnly
+    end
+
     local done, got = 0, 0
     for _, t in ipairs(harvest) do
         if not FC.run() or not alive() then return done end
