@@ -7800,22 +7800,39 @@ function Factory.groupStep(o)
         end
     end
 
-       -- 2) COLLECT: jalan ke kiri 2 tile, lalu ke kanan 4 tile, lalu balik ke tengah
+    -- 2) COLLECT: KIRI dulu (tile demi tile), baru KANAN (tile demi tile)
     if #harvested > 0 then
-        FC.status("Collecting drops: left 2 tiles, then right 4 tiles")
+        FC.status("Collecting drops: LEFT first, then RIGHT")
         task.wait(0.25) -- drop muncul sedikit terlambat
         Drops.waitSpawn(harvested)
         if not o.live() then return "wait" end
-        Factory.walkRow(y, gx0, o.live)       -- kiri 2 tile (dari tengah)
+
+        -- tunggu drop di tile tengah (tempat berdiri) dulu
+        waitNearDrops(0.3)
+
+        -- KIRI: dari tengah ke ujung kiri, 1 tile per langkah
+        for x = tx - 1, gx0, -1 do
+            if not o.live() or not alive() then return "wait" end
+            if not Factory.walkRow(y, x, o.live) then break end
+            waitNearDrops(0.35)
+        end
         if not o.live() then return "wait" end
-        Factory.walkRow(y, gx0 + 4, o.live)   -- kanan 4 tile
+
+        -- KANAN: dari ujung kiri ke ujung kanan, 1 tile per langkah
+        for x = gx0 + 1, gx0 + 4 do
+            if not o.live() or not alive() then return "wait" end
+            if not Factory.walkRow(y, x, o.live) then break end
+            waitNearDrops(0.35)
+        end
         if not o.live() then return "wait" end
-        waitNearDrops(0.4)
-        -- sisa drop yang jatuh agak jauh
+
+        -- sisa drop yang jatuh agak jauh (kiri dulu, baru kanan)
+        local cs0 = playerState()
         Move.fetchDrops(o.live, 8, function(d)
             return d.x >= gx0 - 3 and d.x < gx0 + 8 and abs(d.y - (y + 0.5)) <= 1.6
         end, 4)
         if not o.live() then return "wait" end
+
         -- kembali ke tile tengah sebelum menanam
         local cs = playerState()
         if cs then
