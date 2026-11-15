@@ -7640,15 +7640,208 @@ task.spawn(function()
     end
 end)
 
-local PHASE_NAME = { harvest = "HARVEST", plant = "PLANT", ["break"] = "BREAK", wait = "WAIT" }
+local PHASE_NAME = {
+    harvest = "HARVEST + PLANT (5 tiles)", plant = "PLANT",
+    collect = "COLLECT FLOATING", ["break"] = "BREAK", wait = "WAIT",
+}
 
 local function breakReady()
     return Factory.BreakX >= 0 and next(Factory.Tiles) ~= nil and os.clock() >= (Factory.BreakFailUntil or 0)
 end
 
--- 1 factory step. o = { seed, block, drop, breakMode, whole, exclude, live, phase }
--- Urutan baru: HARVEST -> BREAK -> PLANT -> WAIT -> (ulang)
--- Returns: "drop" | "work" | "move" | "wait" | "break" | "next" | "idle" (+ seconds to ready tree)
+Factory.BreakAt = 200 -- block minimal sebelum mulai break
+
+-- Jenis pekerjaan di 1 tile: "harvest" | "plant" | nil (FC harus sudah di-set)
+function Factory.workKind(x, y, st, now, seeds, o)
+    local w = Refs.World
+    if not w then return nil end
+    local idx = y * w.w + x
+    if skipped(FC.skip, idx, now) then return nil end
+    local id = fgIdAt(x, y)
+    if id ~= 0 then
+        if fcHarvestOk(x, y) then
+            local ra = treeReadyAt(x, y, id)
+            if ra and st >= ra and canWorkAt(x, y) then return "harvest" end
+        end
+    elseif seeds > 0 and fcPlantOk(idx) and plantSpotOk(x, y, o.seed) then
+        return "plant"
+    end
+    return nil
+end
+
+-- Cari baris paling atas yang punya pekerjaan, ambil tile paling kiri
+function Factory.nextGroup(o)
+    local w = Refs.World
+    if not w then return nil end
+    local W, H = w.w, w.h
+    local x0, x1, y0, y1 = 0, W - 1, 0, H - 1
+    if not o.whole then
+        local rows = landRows()
+        if #rows == 0 then return nil end
+        x0 = math.max(0, math.min(Land.X0, Land.X1))
+        x1 = math.min(W - 1, math.max(Land.X0, Land.X1))
+        y0, y1 = math.max(0, rows[1] - 1), rows[#rows]
+    end
+    local now = os.clock()
+    local st = workspace:GetServerTimeNow()
+    local seeds = invCount(o.seed)
+    local scanned = 0
+    for y = y0, y1 do
+        for x = x0, x1 do
+            if Factory.workKind(x, y, st, now, seeds, o) then
+                return { y = y, x0 = x }
+            end
+            scanned += 1
+            if scanned >= 6000 then
+                scanned = 0
+                task.wait()
+                if not o.live() or not alive() or Refs.World ~= w then return nil end
+            end
+        end
+    end
+    return nil
+end
+
+-- 1 langkah: kerjakan 1 grup (5 tile): panen -> collect -> tanam
+-- Return: "work" | "move" | "wait" | "idle"
+function Factory.groupStep(o)
+    local w = Refs.World
+    local s = playerState()
+    if not w or not s or s.dead then
+        releaseInput()
+        task.wait(0.5)
+        return "wait"
+    end
+    if not s.grounded then
+        releaseInput()
+        Move.airCheck(s)
+        task.wait()
+        return "wait"
+    end
+    Move.AirAt = nil
+    releaseInput()
+    FC = factoryCfg(o, true, true)
+
+    local target = Factory.nextGroup(o)
+    if not o.live() or not alive() then return "wait" end
+    if not target then return "idle" end
+
+    local W, y = w.w, target.y
+    local gx0 = target.x0
+    local tiles = {}
+    for x = math.max(0, gx0), math.min(W - 1, gx0 + 4) do tiles[#tiles + 1] = x end
+    local function skipGroup(sec)
+        for _, x in ipairs(tiles) do skipTile(FC.skip, y * W + x, sec) end
+    end
+
+    -- Tile berdiri: tengah grup (tile ke-3), fallback ke tile terdekat
+    local cx, tx = gx0 + 2, nil
+    for _, off in ipairs({ 0, -1, 1, -2, 2 }) do
+        local x = cx + off
+        if x >= 0 and x < W and openAt(x, y) and realSupport(x, y) then
+            tx = x
+            break
+        end
+    end
+    if not tx then
+        skipGroup(30)
+        return "move"
+    end
+
+    local sx, sy = startNode(s)
+    if sx ~= tx or sy ~= y then
+        Factory.Status = ("Moving to center of 5 tiles (%d,%d)"):format(tx, y)
+        if not walkTo(tx, y, 30, o.live) then
+            if o.live() then skipGroup(20) end
+            return "move"
+        end
+    end
+    if not o.live() then return "wait" end
+
+    local R = farmReach() - 0.08
+    local st = workspace:GetServerTimeNow()
+
+    -- 1) PANEN: kiri -> kanan (2 kiri, tengah, 2 kanan)
+    local harvested = {}
+    for _, x in ipairs(tiles) do
+        if not o.live() or not alive() then return "wait" end
+        local cs = playerState()
+        if cs and stateReaches(cs, x, y, R)
+            and Factory.workKind(x, y, st, os.clock(), 0, o) == "harvest" then
+            local id = fgIdAt(x, y)
+            local r = tryBreak(x, y, false, nil, FC.allowHarvest)
+            if r == "broke" then
+                FC.onHarvest(id)
+                harvested[#harvested + 1] = { x = x, y = y }
+                FC.status(("Harvest %s (%d,%d)"):format(itemName(id), x, y))
+            else
+                skipTile(FC.skip, y * W + x, 30)
+            end
+            if not waitAuto(FC.hms) then return "wait" end
+        end
+    end
+
+    -- 2) COLLECT drop dari tile yang dipanen (kiri & kanan)
+    if #harvested > 0 then
+        FC.status("Collecting harvest drops (left & right)")
+        task.wait(0.25) -- drop muncul sedikit terlambat
+        Drops.waitSpawn(harvested)
+        if not o.live() then return "wait" end
+        if State.CollectMode == "Remote" then
+            for _, t in ipairs(harvested) do
+                if not o.live() then break end
+                waitTileDrops(t, 0.4)
+            end
+        else
+            Drops.touchAll(harvested, tx, y, o.live)
+        end
+        -- sisa drop di area grup (jatuh agak jauh)
+        Move.fetchDrops(o.live, 8, function(d)
+            return d.x >= gx0 - 3 and d.x < gx0 + 8 and abs(d.y - (y + 0.5)) <= 1.6
+        end, 6)
+        if not o.live() then return "wait" end
+        -- kembali ke tile tengah sebelum menanam
+        local cs = playerState()
+        if cs then
+            local bx, by = startNode(cs)
+            if bx ~= tx or by ~= y then walkTo(tx, y, 20, o.live) end
+        end
+    end
+
+    -- 3) TANAM di 5 tile yang sama
+    for _, x in ipairs(tiles) do
+        if not o.live() or not alive() then return "wait" end
+        if invCount(o.seed) <= 0 then break end
+        local cs = playerState()
+        if cs and stateReaches(cs, x, y, R) and fgIdAt(x, y) == 0
+            and fcPlantOk(y * W + x) and plantSpotOk(x, y, o.seed) then
+            if not plantSeed(x, y) then break end
+            if not waitAuto(FC.pms) then return "wait" end
+        end
+    end
+
+    -- tile yang masih tersisa (tidak terjangkau) di-skip sebentar agar tidak loop
+    local st2, now2, seedsNow = workspace:GetServerTimeNow(), os.clock(), invCount(o.seed)
+    for _, x in ipairs(tiles) do
+        if Factory.workKind(x, y, st2, now2, seedsNow, o) then
+            skipTile(FC.skip, y * W + x, 15)
+        end
+    end
+    return "work"
+end
+
+-- Setelah break: cari floating block / seed hasil break
+function Factory.collectBreakDrops(o)
+    Factory.Status = "Searching floating " .. itemName(o.block) .. " / seeds from break"
+    for _ = 1, 3 do
+        if not o.live() then return end
+        local got = Move.fetchDrops(o.live, 30, function(d)
+            return d.id == o.block or d.id == o.seed
+        end, 60)
+        if got == 0 then break end
+    end
+end
+
 local function factoryStep(o)
     if not Refs.Trees and os.clock() - (o.treeScanAt or 0) > 5 then
         o.treeScanAt = os.clock()
@@ -7656,10 +7849,16 @@ local function factoryStep(o)
     end
     local seeds, blocks = invCount(o.seed), invCount(o.block)
     local dropAt = math.min(Factory.DropAt, CAP)
+    local breakAt = Factory.BreakAt or 200
     local handledByAutoDrop = AutoDrop.On and table.find(AutoDrop.Items, o.seed) and AutoDrop.targetError() == nil
     Factory.WaitingFull = false
     o.phase = o.phase or "harvest"
+    -- block sudah 200 -> mulai break
+    if (o.phase == "harvest" or o.phase == "wait") and blocks >= breakAt and breakReady() then
+        o.phase = "break"
+    end
     Factory.Phase = PHASE_NAME[o.phase]
+
     -- drop excess seeds (anytime, unless Auto Drop handles this seed)
     if o.drop and Factory.Drop and Factory.pointSet() and not handledByAutoDrop
         and seeds >= dropAt and seeds > Factory.Keep and os.clock() >= (Factory.DropOffUntil or 0) then
@@ -7667,53 +7866,36 @@ local function factoryStep(o)
         return "drop"
     end
 
-    -- 1) HARVEST: panen semua pohon siap, lalu lanjut BREAK
+    -- HARVEST + PLANT per grup 5 tile (atas -> bawah, kiri -> kanan)
     if o.phase == "harvest" then
-        -- 1 harvest may hit multiple trees, so keep ~20 stack room
-        if blocks >= CAP - 20 or seeds >= CAP - 20 then
-            o.phase = "break"
-            return "next"
-        end
-        FC = factoryCfg(o, true, false)
-        local r = fieldStep()
+        local r = Factory.groupStep(o)
         if r == "idle" then
             o.idleAt = os.clock()
-            o.phase = "break"
+            o.phase = "wait"
             return "next"
         end
         return r
     end
 
-    -- 2) BREAK: place-break sampai block habis, lalu lanjut PLANT
+    -- BREAK sampai block habis, lalu cari floating item
     if o.phase == "break" then
-        local want
-        if o.breakMode == "always" then
-            want = blocks > 0
-        else -- produce mode: break only to obtain initial seeds
-            local _, nxt = readyTreeCount(o.whole)
-            want = blocks > 0 and seeds < BOOT_SEEDS and nxt == nil
-        end
-        if want and breakReady() and factoryBreak(o) then
-            -- blocks remain: keep breaking (finish first), blocks empty: plant
-            o.phase = (o.breakMode == "always" and invCount(o.block) > 0) and "break" or "plant"
+        if blocks > 0 and breakReady() and factoryBreak(o) then
+            if invCount(o.block) > 0 then return "break" end -- masih ada block, lanjut break
+            o.phase = "collect"
             return "break"
         end
-        o.phase = "plant"
+        o.phase = "collect"
         return "next"
     end
 
-    -- 3) PLANT: tanam semua seed ke tile kosong, lalu WAIT
-    if o.phase == "plant" then
-        if seeds > 0 then
-            FC = factoryCfg(o, false, true)
-            local r = fieldStep()
-            if r ~= "idle" then return r end
-        end
-        o.phase = "wait"
-        return "next"
+    -- COLLECT floating block / seed hasil break
+    if o.phase == "collect" then
+        Factory.collectBreakDrops(o)
+        o.phase = "harvest"
+        return "work"
     end
 
-    -- 4) WAIT
+    -- WAIT
     if o.drop and Factory.Drop and Factory.pointSet() and not handledByAutoDrop
         and seeds >= CAP - 20 and seeds > Factory.Keep and blocks == 0 and os.clock() >= (Factory.DropOffUntil or 0) then
         factoryDrop(o.seed, seeds - Factory.Keep, o.live)
@@ -7724,13 +7906,14 @@ local function factoryStep(o)
         o.phase = "harvest"
         return "next"
     end
-    if o.breakMode == "always" and blocks > 0 and breakReady() then
-        o.phase = "break"
+    if seeds > 0 and os.clock() - (o.plantAt or 0) > 10 then
+        o.plantAt = os.clock() -- cek tile kosong secara berkala
+        o.phase = "harvest"
         return "next"
     end
-    if seeds > 0 and os.clock() - (o.plantAt or 0) > 10 then
-        o.plantAt = os.clock() -- occasionally check empty tiles (e.g. tree harvested by someone else)
-        o.phase = "plant"
+    -- bootstrap: tidak ada seed & tidak ada pohon tumbuh, tapi ada block -> break walau < 200
+    if blocks > 0 and seeds <= 0 and n == 0 and nxt == nil and breakReady() then
+        o.phase = "break"
         return "next"
     end
     Factory.WaitingFull = seeds >= CAP - 20 or blocks >= CAP - 20
@@ -7783,6 +7966,9 @@ local function factoryLoop(runId)
                 Factory.Status = "Waiting for ready tree ~" .. waitText(nextReady)
             elseif blocks > 0 and (Factory.BreakX < 0 or next(Factory.Tiles) == nil) then
                 Factory.Status = "Has blocks but break position / tiles are not set"
+            -- NO 4: tambahan baru
+            elseif blocks > 0 and blocks < (Factory.BreakAt or 200) and breakReady() then
+                Factory.Status = ("Waiting for blocks to reach %d (now %d)"):format(Factory.BreakAt or 200, blocks)
             elseif seeds > 0 then
                 Factory.Status = "Land is full, waiting"
             else
