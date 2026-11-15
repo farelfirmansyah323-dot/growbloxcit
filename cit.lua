@@ -15959,7 +15959,7 @@ local Rejoin = {
     World = true,       -- rejoin world if kicked from world
     Server = true,      -- rejoin game if disconnected from server
     DelaySec = 5,
-    ScriptUrl = "https://raw.githubusercontent.com/ZennJxD/n4th/refs/heads/main/n4th",
+    ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/n4th/refs/heads/main/cit.lua",
     Keep = false,       -- always return to target world if outside a world
     Target = "",        -- target world (empty = last world)
     LastWorld = "",     -- last entered world
