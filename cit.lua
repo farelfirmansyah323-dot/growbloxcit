@@ -7702,25 +7702,6 @@ function Factory.nextGroup(o)
     return nil
 end
 
--- Jalan horizontal di baris y ke tile toX (berhenti di ujung pijakan yang aman)
-function Factory.walkRow(y, toX, live)
-    local s = playerState()
-    if not s or not s.grounded then return false end
-    local cur = floor(s.x)
-    if cur == toX then return true end
-    local dir = toX > cur and 1 or -1
-    local last = cur
-    for x = cur + dir, toX, dir do
-        if not (openAt(x, y) and realSupport(x, y)) then break end
-        last = x
-    end
-    if last == cur or not live() then return false end
-    AutoInput.active = true
-    local ok = execWalk(last, y)
-    releaseInput()
-    return ok and last == toX
-end
-
 -- 1 langkah: kerjakan 1 grup (5 tile): panen -> collect -> tanam
 -- Return: "work" | "move" | "wait" | "idle"
 function Factory.groupStep(o)
@@ -15977,7 +15958,7 @@ local Rejoin = {
     World = true,       -- rejoin world if kicked from world
     Server = true,      -- rejoin game if disconnected from server
     DelaySec = 5,
-    ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/n4th/refs/heads/main/cit.lua",
+    ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/main",
     Keep = false,       -- always return to target world if outside a world
     Target = "",        -- target world (empty = last world)
     LastWorld = "",     -- last entered world
