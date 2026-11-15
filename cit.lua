@@ -7854,7 +7854,7 @@ function Factory.collectBreakDrops(o)
     for _ = 1, 3 do
         if not o.live() then return end
         local got = Move.fetchDrops(o.live, 30, function(d)
-            return d.id == o.block or d.id == o.seed
+            return d.id == o.block
         end, 60)
         if got == 0 then break end
     end
