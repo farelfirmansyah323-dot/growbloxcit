@@ -7702,6 +7702,25 @@ function Factory.nextGroup(o)
     return nil
 end
 
+-- Jalan horizontal di baris y ke tile toX (berhenti di ujung pijakan yang aman)
+function Factory.walkRow(y, toX, live)
+    local s = playerState()
+    if not s or not s.grounded then return false end
+    local cur = floor(s.x)
+    if cur == toX then return true end
+    local dir = toX > cur and 1 or -1
+    local last = cur
+    for x = cur + dir, toX, dir do
+        if not (openAt(x, y) and realSupport(x, y)) then break end
+        last = x
+    end
+    if last == cur or not live() then return false end
+    AutoInput.active = true
+    local ok = execWalk(last, y)
+    releaseInput()
+    return ok and last == toX
+end
+
 -- 1 langkah: kerjakan 1 grup (5 tile): panen -> collect -> tanam
 -- Return: "work" | "move" | "wait" | "idle"
 function Factory.groupStep(o)
@@ -7781,30 +7800,29 @@ function Factory.groupStep(o)
         end
     end
 
-    -- 2) COLLECT drop dari tile yang dipanen (kiri & kanan)
+       -- 2) COLLECT: jalan ke kiri 2 tile, lalu ke kanan 4 tile, lalu balik ke tengah
     if #harvested > 0 then
-        FC.status("Collecting harvest drops (left & right)")
+        FC.status("Collecting drops: left 2 tiles, then right 4 tiles")
         task.wait(0.25) -- drop muncul sedikit terlambat
         Drops.waitSpawn(harvested)
         if not o.live() then return "wait" end
-        if State.CollectMode == "Remote" then
-            for _, t in ipairs(harvested) do
-                if not o.live() then break end
-                waitTileDrops(t, 0.4)
-            end
-        else
-            Drops.touchAll(harvested, tx, y, o.live)
-        end
-        -- sisa drop di area grup (jatuh agak jauh)
+        Factory.walkRow(y, gx0, o.live)       -- kiri 2 tile (dari tengah)
+        if not o.live() then return "wait" end
+        Factory.walkRow(y, gx0 + 4, o.live)   -- kanan 4 tile
+        if not o.live() then return "wait" end
+        waitNearDrops(0.4)
+        -- sisa drop yang jatuh agak jauh
         Move.fetchDrops(o.live, 8, function(d)
             return d.x >= gx0 - 3 and d.x < gx0 + 8 and abs(d.y - (y + 0.5)) <= 1.6
-        end, 6)
+        end, 4)
         if not o.live() then return "wait" end
         -- kembali ke tile tengah sebelum menanam
         local cs = playerState()
         if cs then
             local bx, by = startNode(cs)
-            if bx ~= tx or by ~= y then walkTo(tx, y, 20, o.live) end
+            if bx ~= tx or by ~= y then
+                if not Factory.walkRow(y, tx, o.live) then walkTo(tx, y, 20, o.live) end
+            end
         end
     end
 
