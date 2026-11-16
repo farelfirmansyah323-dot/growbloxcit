@@ -7702,25 +7702,6 @@ function Factory.nextGroup(o)
     return nil
 end
 
--- Jalan horizontal di baris y ke tile toX (berhenti di ujung pijakan yang aman)
-function Factory.walkRow(y, toX, live)
-    local s = playerState()
-    if not s or not s.grounded then return false end
-    local cur = floor(s.x)
-    if cur == toX then return true end
-    local dir = toX > cur and 1 or -1
-    local last = cur
-    for x = cur + dir, toX, dir do
-        if not (openAt(x, y) and realSupport(x, y)) then break end
-        last = x
-    end
-    if last == cur or not live() then return false end
-    AutoInput.active = true
-    local ok = execWalk(last, y)
-    releaseInput()
-    return ok and last == toX
-end
-
 -- 1 langkah: kerjakan 1 grup (5 tile): panen -> collect -> tanam
 -- Return: "work" | "move" | "wait" | "idle"
 function Factory.groupStep(o)
@@ -7741,126 +7722,51 @@ function Factory.groupStep(o)
     releaseInput()
     FC = factoryCfg(o, true, true)
 
+    -- baris paling atas dulu, tile paling kiri
     local target = Factory.nextGroup(o)
     if not o.live() or not alive() then return "wait" end
     if not target then return "idle" end
 
-    local W, y = w.w, target.y
-    local gx0 = target.x0
-    local tiles = {}
-    for x = math.max(0, gx0), math.min(W - 1, gx0 + 4) do tiles[#tiles + 1] = x end
-    local function skipGroup(sec)
-        for _, x in ipairs(tiles) do skipTile(FC.skip, y * W + x, sec) end
-    end
+    local x, y = target.x0, target.y
+    local idx = y * w.w + x
 
-    -- Tile berdiri: tengah grup (tile ke-3), fallback ke tile terdekat
-    local cx, tx = gx0 + 2, nil
-    for _, off in ipairs({ 0, -1, 1, -2, 2 }) do
-        local x = cx + off
-        if x >= 0 and x < W and openAt(x, y) and realSupport(x, y) then
-            tx = x
-            break
-        end
-    end
-    if not tx then
-        skipGroup(30)
-        return "move"
-    end
-
-    local sx, sy = startNode(s)
-    if sx ~= tx or sy ~= y then
-        Factory.Status = ("Moving to center of 5 tiles (%d,%d)"):format(tx, y)
-        if not walkTo(tx, y, 30, o.live) then
-            if o.live() then skipGroup(20) end
+    -- 1) TP 1 tile ke pohon (fallback jalan kalau TP gagal)
+    local cur = playerState()
+    if not cur or floor(cur.x) ~= x or floor(cur.y - 0.475) ~= y then
+        Factory.Status = ("TP to tree (%d,%d)"):format(x, y)
+        local ok = Session.tpTile and Session.tpTile(x, y, o.live)
+        if not ok and o.live() then ok = walkTo(x, y, 20, o.live) end
+        if not ok then
+            if o.live() then skipTile(FC.skip, idx, 20) end
             return "move"
         end
     end
     if not o.live() then return "wait" end
 
-    local R = farmReach() - 0.08
-    local st = workspace:GetServerTimeNow()
-
-    -- 1) PANEN: kiri -> kanan (2 kiri, tengah, 2 kanan)
-    local harvested = {}
-    for _, x in ipairs(tiles) do
-        if not o.live() or not alive() then return "wait" end
-        local cs = playerState()
-        if cs and stateReaches(cs, x, y, R)
-            and Factory.workKind(x, y, st, os.clock(), 0, o) == "harvest" then
-            local id = fgIdAt(x, y)
-            local r = tryBreak(x, y, false, nil, FC.allowHarvest)
-            if r == "broke" then
-                FC.onHarvest(id)
-                harvested[#harvested + 1] = { x = x, y = y }
-                FC.status(("Harvest %s (%d,%d)"):format(itemName(id), x, y))
-            else
-                skipTile(FC.skip, y * W + x, 30)
-            end
-            if not waitAuto(FC.hms) then return "wait" end
+    -- 2) PANEN di tile tengah (tile badan)
+    local kind = Factory.workKind(x, y, workspace:GetServerTimeNow(), os.clock(), invCount(o.seed), o)
+    if kind == "harvest" then
+        local id = fgIdAt(x, y)
+        local r = tryBreak(x, y, false, nil, FC.allowHarvest)
+        if r ~= "broke" then
+            skipTile(FC.skip, idx, 30)
+            return "move"
         end
+        FC.onHarvest(id)
+        FC.status(("Harvest %s (%d,%d)"):format(itemName(id), x, y))
+        if not waitAuto(FC.hms) then return "wait" end
+
+        -- 3) COLLECT via remote, horizontal (baris yang sama)
+        FC.status("Collect remote (horizontal)")
+        Drops.waitSpawn({ { x = x, y = y } })
+        if not o.live() then return "wait" end
+        Factory.remoteCollect(o, x, y, o.live, 8)
     end
 
-    -- 2) COLLECT: KIRI dulu (tile demi tile), baru KANAN (tile demi tile)
-    if #harvested > 0 then
-        FC.status("Collecting drops: LEFT first, then RIGHT")
-        task.wait(0.25) -- drop muncul sedikit terlambat
-        Drops.waitSpawn(harvested)
-        if not o.live() then return "wait" end
-
-        -- tunggu drop di tile tengah (tempat berdiri) dulu
-        waitNearDrops(0.3)
-
-        -- KIRI: dari tengah ke ujung kiri, 1 tile per langkah
-        for x = tx - 1, gx0, -1 do
-            if not o.live() or not alive() then return "wait" end
-            if not Factory.walkRow(y, x, o.live) then break end
-            waitNearDrops(0.35)
-        end
-        if not o.live() then return "wait" end
-
-        -- KANAN: dari ujung kiri ke ujung kanan, 1 tile per langkah
-        for x = gx0 + 1, gx0 + 4 do
-            if not o.live() or not alive() then return "wait" end
-            if not Factory.walkRow(y, x, o.live) then break end
-            waitNearDrops(0.35)
-        end
-        if not o.live() then return "wait" end
-
-        -- sisa drop yang jatuh agak jauh (kiri dulu, baru kanan)
-        local cs0 = playerState()
-        Move.fetchDrops(o.live, 8, function(d)
-            return d.x >= gx0 - 3 and d.x < gx0 + 8 and abs(d.y - (y + 0.5)) <= 1.6
-        end, 4)
-        if not o.live() then return "wait" end
-
-        -- kembali ke tile tengah sebelum menanam
-        local cs = playerState()
-        if cs then
-            local bx, by = startNode(cs)
-            if bx ~= tx or by ~= y then
-                if not Factory.walkRow(y, tx, o.live) then walkTo(tx, y, 20, o.live) end
-            end
-        end
-    end
-
-    -- 3) TANAM di 5 tile yang sama
-    for _, x in ipairs(tiles) do
-        if not o.live() or not alive() then return "wait" end
-        if invCount(o.seed) <= 0 then break end
-        local cs = playerState()
-        if cs and stateReaches(cs, x, y, R) and fgIdAt(x, y) == 0
-            and fcPlantOk(y * W + x) and plantSpotOk(x, y, o.seed) then
-            if not plantSeed(x, y) then break end
-            if not waitAuto(FC.pms) then return "wait" end
-        end
-    end
-
-    -- tile yang masih tersisa (tidak terjangkau) di-skip sebentar agar tidak loop
-    local st2, now2, seedsNow = workspace:GetServerTimeNow(), os.clock(), invCount(o.seed)
-    for _, x in ipairs(tiles) do
-        if Factory.workKind(x, y, st2, now2, seedsNow, o) then
-            skipTile(FC.skip, y * W + x, 15)
-        end
+    -- 4) TANAM di tile yang sama
+    if o.live() and invCount(o.seed) > 0 and fgIdAt(x, y) == 0
+        and fcPlantOk(idx) and plantSpotOk(x, y, o.seed) then
+        if plantSeed(x, y) then waitAuto(FC.pms) end
     end
     return "work"
 end
@@ -7871,7 +7777,7 @@ function Factory.collectBreakDrops(o)
     for _ = 1, 3 do
         if not o.live() then return end
         local got = Move.fetchDrops(o.live, 30, function(d)
-            return d.id == o.block
+            return d.id == o.block or d.id == o.seed
         end, 60)
         if got == 0 then break end
     end
@@ -15994,7 +15900,7 @@ local Rejoin = {
     World = true,       -- rejoin world if kicked from world
     Server = true,      -- rejoin game if disconnected from server
     DelaySec = 5,
-    ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/main",
+    ScriptUrl = "https://raw.githubusercontent.com/farelfirmansyah323-dot/n4th/refs/heads/main/cit.lua",
     Keep = false,       -- always return to target world if outside a world
     Target = "",        -- target world (empty = last world)
     LastWorld = "",     -- last entered world
@@ -16451,7 +16357,7 @@ if not globals.__n4thFinderBooting then
             and os.time() - data.At >= 0 and os.time() - data.At < 600
             and stoppedAt < data.At - 3 then
             ran, err = pcall(function()
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/farelfirmansyah323-dot/growbloxcit/refs/heads/main/main"))()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/ZennJxD/n4th/refs/heads/main/n4th"))()
             end)
         elseif ok and type(data) == "table" and data.Active == true and player and stoppedAt >= (tonumber(data.At) or 0) - 3 then
             pcall(ts.SetTeleportSetting, ts, "n4th.finder.teleport.v1", { Schema = 1, Active = false, Cancelled = true, At = os.time(), User = player.UserId })
